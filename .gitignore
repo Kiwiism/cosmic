@@ -3,15 +3,23 @@
 !.idea/codeStyles/
 *.iml
 /target
-/cms/**/target/
-/cms/web/node_modules/
-/cms/web/.next/
-/cms/web/out/
-/cms/web/tsconfig.tsbuildinfo
-/cms/.env
-/cms/.env.local
-/cms/.runtime/
-/cms/assets/cache/
+/database-cms/**/target/
+/database-cms/web/node_modules/
+/database-cms/web/.next/
+/database-cms/web/out/
+/database-cms/web/tsconfig.tsbuildinfo
+/database-cms/.env
+/database-cms/.env.local
+/database-cms/.runtime/
+/database-cms/assets/cache/
+/database-cms/*.log
+/server-cms/**/target/
+/server-cms/web/node_modules/
+/server-cms/web/.next/
+/server-cms/web/tsconfig.tsbuildinfo
+/server-cms/.env
+/server-cms/.runtime/
+/server-cms/*.log
 
 # build files
 /build/

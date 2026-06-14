@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.concurrent.Executors;
 
 /**
- * Private, allowlisted bridge used by the staff CMS for live-only operations.
+ * Private, allowlisted bridge used by the Database CMS for live-only operations.
  *
  * The bridge intentionally has no arbitrary SQL, command, or reflection endpoint. Set
  * COSMIC_BRIDGE_TOKEN to enable it; bind address and port default to 127.0.0.1:8787.

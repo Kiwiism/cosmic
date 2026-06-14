@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - include:
+      file: db/changelog/001-server-cms.sql
+  - include:
+      file: db/changelog/002-setting-catalog.sql
+  - include:
+      file: db/changelog/003-expanded-catalog.sql
+  - include:
+      file: db/changelog/004-setting-editability.sql
+  - include:
+      file: db/changelog/005-command-overrides.sql

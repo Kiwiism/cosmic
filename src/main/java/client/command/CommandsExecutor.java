@@ -24,6 +24,7 @@
 package client.command;
 
 import client.Client;
+import server.configuration.CommandPolicyOverrides;
 import client.command.commands.gm0.ChangeLanguageCommand;
 import client.command.commands.gm0.BuffsCommand;
 import client.command.commands.gm0.CooldownsCommand;
@@ -351,6 +352,10 @@ public class CommandsExecutor {
     }
 
     private void addCommand(String syntax, int rank, Class<? extends Command> commandClass) {
+        if (!CommandPolicyOverrides.enabled(syntax)) {
+            return;
+        }
+        rank = CommandPolicyOverrides.requiredLevel(syntax, rank);
         if (registeredCommands.containsKey(syntax.toLowerCase())) {
             log.warn("Error on register command with name: {}. Already exists.", syntax);
             return;

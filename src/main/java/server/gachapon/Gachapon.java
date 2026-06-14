@@ -113,13 +113,13 @@ public class Gachapon {
 
         /**
          * CMS-managed rewards override the source arrays only after a location has been
-         * initialized in cosmic_cms. If the CMS schema is unavailable, the original
+         * initialized in cosmic_database_cms. If the CMS schema is unavailable, the original
          * Java lists remain the safe runtime fallback.
          */
         private static int[] getDatabaseOverride(String location, int tier) {
             try (Connection connection = DatabaseConnection.getConnection();
                  PreparedStatement exists = connection.prepareStatement("""
-                         SELECT COUNT(*) FROM cosmic_cms.cms_gachapon_entries
+                         SELECT COUNT(*) FROM cosmic_database_cms.cms_gachapon_entries
                          WHERE location_code = ?
                          """)) {
                 exists.setString(1, location);
@@ -129,7 +129,7 @@ public class Gachapon {
                     }
                 }
                 try (PreparedStatement query = connection.prepareStatement("""
-                        SELECT item_id FROM cosmic_cms.cms_gachapon_entries
+                        SELECT item_id FROM cosmic_database_cms.cms_gachapon_entries
                         WHERE location_code = ? AND tier = ? AND enabled = TRUE
                         ORDER BY position, id
                         """)) {

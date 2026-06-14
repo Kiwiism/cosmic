@@ -68,6 +68,8 @@ import server.CashShop.CashItemFactory;
 import server.SkillbookInformationProvider;
 import server.ThreadManager;
 import server.TimerManager;
+import server.configuration.ServerConfigurationOverrides;
+import server.configuration.CommandPolicyOverrides;
 import server.expeditions.ExpeditionBossLog;
 import server.life.PlayerNPC;
 import server.quest.Quest;
@@ -872,6 +874,10 @@ public class Server {
             throw new IllegalStateException("Failed to initiate a connection to the database");
         }
 
+        // Optional Server CMS desired-state overrides. Failure preserves config.yaml/Java behavior.
+        ServerConfigurationOverrides.applyStartupOverrides();
+        CommandPolicyOverrides.load();
+
         DatabaseMigrations.runDatabaseMigrations();
 
         channelDependencies = registerChannelDependencies();
@@ -935,9 +941,10 @@ public class Server {
             }
         }
 
-        loginServer = initLoginServer(8484);
+        int loginPort = ServerConfigurationOverrides.loginPort();
+        loginServer = initLoginServer(loginPort);
 
-        log.info("Listening on port 8484");
+        log.info("Listening on port {}", loginPort);
 
         online = true;
         cmsBridgeServer = CmsBridgeServer.fromEnvironment();

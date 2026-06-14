@@ -35,8 +35,8 @@ services:
       - ./database/docker-db-data:/var/lib/mysql
       - ./database/docker-init:/docker-entrypoint-initdb.d
 
-  cms-api:
-    build: ./cms/api
+  database-cms-api:
+    build: ./database-cms/api
     depends_on:
       - db
     ports:
@@ -44,23 +44,23 @@ services:
     volumes:
       - ./wz:/opt/cosmic/wz:ro
     environment:
-      CMS_DB_URL: "jdbc:mysql://db:3306/cosmic_cms"
-      CMS_DB_USER: "root"
-      CMS_DB_PASSWORD: ""
+      DATABASE_CMS_DB_URL: "jdbc:mysql://db:3306/cosmic_database_cms"
+      DATABASE_CMS_DB_USER: "root"
+      DATABASE_CMS_DB_PASSWORD: ""
       GAME_DB_URL: "jdbc:mysql://db:3306/cosmic"
       GAME_DB_USER: "root"
       GAME_DB_PASSWORD: ""
       COSMIC_WZ_PATH: "/opt/cosmic/wz"
       COSMIC_BRIDGE_URL: "http://maplestory:8787"
       COSMIC_BRIDGE_TOKEN: "${COSMIC_BRIDGE_TOKEN:-development-only-change-me}"
-      CMS_ALLOWED_ORIGIN: "http://localhost:3000"
+      DATABASE_CMS_ALLOWED_ORIGIN: "http://localhost:3000"
 
-  cms-web:
+  database-cms-web:
     build:
-      context: ./cms/web
+      context: ./database-cms/web
       args:
-        NEXT_PUBLIC_CMS_API_URL: "http://localhost:8081"
+        NEXT_PUBLIC_DATABASE_CMS_API_URL: "http://localhost:8081"
     depends_on:
-      - cms-api
+      - database-cms-api
     ports:
       - "3000:3000"

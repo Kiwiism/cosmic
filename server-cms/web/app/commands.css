@@ -1,0 +1,82 @@
+.command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.command-card {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  padding: 15px;
+  text-align: left;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.command-card:hover {
+  border-color: #b9afea;
+  box-shadow: var(--shadow);
+}
+
+.command-card strong,
+.command-card code,
+.command-card span,
+.command-card em {
+  display: block;
+}
+
+.command-card strong {
+  font-size: 16px;
+}
+
+.command-card p {
+  color: var(--muted);
+  margin: 6px 0;
+}
+
+.command-card code {
+  font-size: 11px;
+  color: #8b92a5;
+}
+
+.command-card > div:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.command-card span {
+  font-weight: 800;
+}
+
+.command-card em {
+  color: var(--brand);
+  font-size: 10px;
+  font-style: normal;
+  margin-top: 5px;
+}
+
+.command-card.disabled {
+  opacity: .55;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 15px;
+  font-weight: 700;
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 800px) {
+  .command-grid {
+    grid-template-columns: 1fr;
+  }
+}

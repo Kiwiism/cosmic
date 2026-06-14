@@ -28,6 +28,7 @@ import net.PacketHandler;
 import net.packet.InPacket;
 import net.server.Server;
 import net.server.coordinator.session.Hwid;
+import server.configuration.ServerConfigurationOverrides;
 import tools.BCrypt;
 import tools.DatabaseConnection;
 import tools.HexTool;
@@ -127,6 +128,10 @@ public final class LoginPasswordHandler implements PacketHandler {
             return;
         } else if (loginok != 0) {
             c.sendPacket(PacketCreator.getLoginFailed(loginok));
+            return;
+        }
+        if (ServerConfigurationOverrides.freezeLogins()) {
+            c.sendPacket(PacketCreator.getLoginFailed(7));
             return;
         }
         if (c.finishLogin() == 0) {
