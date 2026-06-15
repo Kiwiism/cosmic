@@ -23,7 +23,7 @@ const compatibility:Record<string,{label:string,className:string}>={
 };
 
 export default function App(){
- const [auth,setAuth]=useState<boolean|null>(null),[setup,setSetup]=useState(false),[startupError,setStartupError]=useState(""),[view,setView]=useState<View>("overview"),[drawer,setDrawer]=useState<Setting|null>(null);
+ const [auth,setAuth]=useState<boolean|null>(null),[setup,setSetup]=useState(false),[startupError,setStartupError]=useState(""),[view,setView]=useState<View>("overview"),[drawer,setDrawer]=useState<Setting|null>(null),[settingsVersion,setSettingsVersion]=useState(0);
  useEffect(()=>{api("/api/auth/me").then(()=>setAuth(true)).catch(async()=>{
   try{const status=await api<{required:boolean}>("/api/setup/status");setSetup(status.required);setAuth(false)}
   catch{setStartupError("The Server CMS API is offline or its database credentials are not configured.");setAuth(false)}
@@ -34,19 +34,19 @@ export default function App(){
  return <CmsShell activeView={view} brandMark="SC" brandSubtitle="Server CMS" eyebrow="COSMIC CONTROL CENTER"
   headerStatus="Server configuration only" inspectorOpen={Boolean(drawer)} navigation={nav}
   onNavigate={next=>{setView(next);setDrawer(null)}} sidebarStatus={<><Server size={16}/> Independent operations console</> }
-  inspector={drawer&&<SettingDock setting={drawer} close={()=>setDrawer(null)} changed={setDrawer}/>}>
-   {view==="overview"&&<Overview open={s=>{setDrawer(s);setView("settings")}}/>}
-   {view==="settings"&&<Configuration onOpen={setDrawer}/>}
-   {view==="worlds"&&<WorldsAndRates onOpen={setDrawer}/>}
+  inspector={drawer&&<SettingDock setting={drawer} close={()=>setDrawer(null)} changed={next=>{setDrawer(next);setSettingsVersion(value=>value+1)}}/>}>
+   {view==="overview"&&<Overview refreshKey={settingsVersion} open={s=>{setDrawer(s);setView("settings")}}/>}
+   {view==="settings"&&<Configuration refreshKey={settingsVersion} onOpen={setDrawer}/>}
+   {view==="worlds"&&<WorldsAndRates refreshKey={settingsVersion} onOpen={setDrawer}/>}
    {view==="commands"&&<Commands onOpen={setDrawer}/>}
-   {view!=="overview"&&view!=="settings"&&view!=="worlds"&&view!=="commands"&&view!=="audit"&&<CategoryPage view={view} onOpen={setDrawer}/>}
-   {view==="audit"&&<Audit/>}
+   {view!=="overview"&&view!=="settings"&&view!=="worlds"&&view!=="commands"&&view!=="audit"&&<CategoryPage view={view} refreshKey={settingsVersion} onOpen={setDrawer}/>}
+   {view==="audit"&&<Audit refreshKey={settingsVersion}/>}
   </CmsShell>
 }
 
-function Overview({open}:{open:(s:Setting)=>void}){
+function Overview({refreshKey,open}:{refreshKey:number;open:(s:Setting)=>void}){
  const [data,setData]=useState<any>();const [recent,setRecent]=useState<Setting[]>([]);
- useEffect(()=>{api("/api/dashboard").then(setData);api<Setting[]>("/api/settings").then(x=>setRecent(x.filter(s=>s.override_value).slice(0,6)))},[]);
+ useEffect(()=>{api("/api/dashboard").then(setData);api<Setting[]>("/api/settings").then(x=>setRecent(x.filter(s=>s.override_value).slice(0,6)))},[refreshKey]);
  if(!data)return <Loading/>;
  const server=data.server||{};
  return <><div className={`server-banner ${server.status==="UP"?"up":"down"}`}><div className="pulse"/><div><strong>Cosmic server {String(server.status).toLowerCase()}</strong>
@@ -59,11 +59,11 @@ function Overview({open}:{open:(s:Setting)=>void}){
   <article className="panel"><Title title="Recent active overrides" sub="Only values diverging from original Cosmic behavior"/>{recent.length?recent.map(s=><button className="setting-row" onClick={()=>open(s)} key={s.setting_key}><div><strong>{s.display_name}</strong><code>{s.setting_key}</code></div><span>{s.override_value}</span><ChevronRight size={16}/></button>):<p className="muted">No overrides. Cosmic is using its original configuration.</p>}</article></>
 }
 
-function Configuration({onOpen}:{onOpen:(s:Setting)=>void}){
+function Configuration({refreshKey,onOpen}:{refreshKey:number;onOpen:(s:Setting)=>void}){
  const [rows,setRows]=useState<Setting[]>([]),[cats,setCats]=useState<string[]>([]),[q,setQ]=useState(""),[cat,setCat]=useState(""),[origin,setOrigin]=useState(""),[compat,setCompat]=useState("");
  const ownedCategories=new Set(["Worlds & Channels","Worlds & rates","Commands","Authentication & Sessions","Security & Anti-Abuse","Runtime & Performance","Schedulers","Maintenance","Diagnostics","Diagnostics & Logs","Network"]);
  useEffect(()=>{api<string[]>("/api/settings/categories").then(values=>setCats(values.filter(value=>!ownedCategories.has(value))))},[]);
- useEffect(()=>{const t=setTimeout(()=>{const p=new URLSearchParams({q,category:cat,origin,compatibility:compat,scopeType:"GLOBAL"});api<Setting[]>(`/api/settings?${p}`).then(values=>setRows(values.filter(value=>!ownedCategories.has(value.category))))},120);return()=>clearTimeout(t)},[q,cat,origin,compat]);
+ useEffect(()=>{const t=setTimeout(()=>{const p=new URLSearchParams({q,category:cat,origin,compatibility:compat,scopeType:"GLOBAL"});api<Setting[]>(`/api/settings?${p}`).then(values=>setRows(values.filter(value=>!ownedCategories.has(value.category))))},120);return()=>clearTimeout(t)},[q,cat,origin,compat,refreshKey]);
  return <><article className="panel intro"><Title title="Features & general" sub="Only global settings without a dedicated operations page are shown here."/></article><PageToolbar query={q} onQueryChange={setQ} placeholder="Search general setting, key or description">
   <select value={cat} onChange={e=>setCat(e.target.value)}><option value="">All sections</option>{cats.map(x=><option key={x}>{x}</option>)}</select>
   <select value={origin} onChange={e=>setOrigin(e.target.value)}><option value="">All origins</option><option>YAML_EXISTING</option><option>JAVA_HARDCODED</option><option>SERVER_CMS_NEW</option></select>
@@ -71,10 +71,10 @@ function Configuration({onOpen}:{onOpen:(s:Setting)=>void}){
   <p className="count">{rows.length} settings</p><div className="settings-grid">{rows.map(s=><SettingCard key={s.setting_key} setting={s} open={()=>onOpen(s)}/>)}</div></>
 }
 
-function WorldsAndRates({onOpen}:{onOpen:(s:Setting)=>void}){
+function WorldsAndRates({refreshKey,onOpen}:{refreshKey:number;onOpen:(s:Setting)=>void}){
  const [worlds,setWorlds]=useState<WorldSummary[]>([]),[selected,setSelected]=useState(0),[rows,setRows]=useState<Setting[]>([]),[globalRows,setGlobalRows]=useState<Setting[]>([]),[q,setQ]=useState("");
- useEffect(()=>{api<WorldSummary[]>("/api/worlds").then(setWorlds);api<Setting[]>("/api/settings?category=Worlds%20%26%20Channels&scopeType=GLOBAL").then(setGlobalRows)},[]);
- useEffect(()=>{const timer=setTimeout(()=>{const params=new URLSearchParams({q,scopeType:"WORLD",scopeId:String(selected)});api<Setting[]>(`/api/settings?${params}`).then(setRows)},120);return()=>clearTimeout(timer)},[selected,q]);
+ useEffect(()=>{api<WorldSummary[]>("/api/worlds").then(setWorlds);api<Setting[]>("/api/settings?category=Worlds%20%26%20Channels&scopeType=GLOBAL").then(setGlobalRows)},[refreshKey]);
+ useEffect(()=>{const timer=setTimeout(()=>{const params=new URLSearchParams({q,scopeType:"WORLD",scopeId:String(selected)});api<Setting[]>(`/api/settings?${params}`).then(setRows)},120);return()=>clearTimeout(timer)},[selected,q,refreshKey]);
  const world=worlds.find(value=>value.id===selected);
  const rates=rows.filter(setting=>setting.category==="Worlds & rates");
  const operations=rows.filter(setting=>setting.category==="Worlds & Channels");
@@ -91,10 +91,10 @@ function WorldsAndRates({onOpen}:{onOpen:(s:Setting)=>void}){
   {!rows.length&&<article className="panel"><p className="muted">No world settings match this search.</p></article>}</>
 }
 
-function CategoryPage({view,onOpen}:{view:View;onOpen:(s:Setting)=>void}){
+function CategoryPage({view,refreshKey,onOpen}:{view:View;refreshKey:number;onOpen:(s:Setting)=>void}){
  const map:Record<string,string[]>={worlds:["Worlds & Channels","Worlds & rates"],commands:["Commands"],security:["Authentication & Sessions","Security & Anti-Abuse"],performance:["Runtime & Performance","Schedulers"],maintenance:["Maintenance"],diagnostics:["Diagnostics & Logs"],deployments:["Network"]};
  const fullWidth=view==="diagnostics"||view==="deployments";
- const [rows,setRows]=useState<Setting[]>([]);useEffect(()=>{Promise.all((map[view]||[]).map(category=>api<Setting[]>(`/api/settings?category=${encodeURIComponent(category)}`))).then(x=>setRows(x.flat()))},[view]);
+ const [rows,setRows]=useState<Setting[]>([]);useEffect(()=>{Promise.all((map[view]||[]).map(category=>api<Setting[]>(`/api/settings?category=${encodeURIComponent(category)}`))).then(x=>setRows(x.flat()))},[view,refreshKey]);
  return <><article className="panel intro"><Title title={nav.find(x=>x.key===view)?.label||view} sub="Settings are grouped here without losing their original source and compatibility metadata."/></article><div className={fullWidth?"full-width-list":"settings-grid"}>{rows.map(s=><SettingCard key={s.setting_key} setting={s} open={()=>onOpen(s)}/>)}</div>{!rows.length&&<article className="panel"><p className="muted">This operations module is scaffolded for the next managed controls. Use Configuration to browse the current catalog.</p></article>}</>
 }
 
@@ -159,7 +159,7 @@ function SettingDock({setting:s,close,changed}:{setting:Setting;close:()=>void;c
   <section className={`compat ${c.className}`}><h3>Client and WZ reflection</h3><strong>{c.label}</strong><p>{s.compatibility_note||"No client or WZ change is required for this setting to behave and display as designed."}</p></section></aside>
 }
 
-function Audit(){const [rows,setRows]=useState<any[]>([]);useEffect(()=>{api<any[]>("/api/audit").then(setRows)},[]);return <article className="panel"><Title title="Audit & rollback" sub="Exact changes, reasons and outcomes"/>{rows.map(r=><details className="audit-row" key={r.id}><summary><strong>{r.action}</strong><code>{r.entity_key}</code><span>{r.username||"System"} · {String(r.created_at)}</span></summary><p>{r.reason}</p><pre>{r.before_json||"Original fallback"} → {r.after_json||"Original fallback"}</pre></details>)}</article>}
+function Audit({refreshKey}:{refreshKey:number}){const [rows,setRows]=useState<any[]>([]);useEffect(()=>{api<any[]>("/api/audit").then(setRows)},[refreshKey]);return <article className="panel"><Title title="Audit & rollback" sub="Exact changes, reasons and outcomes"/>{rows.map(r=><details className="audit-row" key={r.id}><summary><strong>{r.action}</strong><code>{r.entity_key}</code><span>{r.username||"System"} · {String(r.created_at)}</span></summary><p>{r.reason}</p><pre>{r.before_json||"Original fallback"} → {r.after_json||"Original fallback"}</pre></details>)}</article>}
 function Loading(){return <div className="splash">Loading server state...</div>}
 function Title({title,sub}:{title:string;sub:string}){return <div className="title"><h2>{title}</h2><p>{sub}</p></div>}
 function Status({label,value}:{label:string;value:string}){return <div className="status"><span>{label}</span><strong>{value}</strong></div>}
