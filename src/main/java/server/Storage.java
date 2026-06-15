@@ -22,6 +22,7 @@ import client.Client;
 import client.inventory.InventoryType;
 import client.inventory.Item;
 import client.inventory.ItemFactory;
+import config.YamlConfig;
 import constants.game.GameConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,11 +73,19 @@ public class Storage {
 
     private static void create(int id, int world) throws SQLException {
         try (Connection con = DatabaseConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement("INSERT INTO storages (accountid, world, slots, meso) VALUES (?, ?, 48, 0)")) {
+             PreparedStatement ps = con.prepareStatement("INSERT INTO storages (accountid, world, slots, meso) VALUES (?, ?, ?, 0)")) {
             ps.setInt(1, id);
             ps.setInt(2, world);
+            ps.setInt(3, defaultStorageSlotsForWorld(world));
             ps.executeUpdate();
         }
+    }
+
+    private static int defaultStorageSlotsForWorld(int world) {
+        if (world < 0 || world >= YamlConfig.config.worlds.size()) {
+            return 48;
+        }
+        return YamlConfig.config.worlds.get(world).defaultStorageSlots();
     }
 
     private static Storage loadFromDB(int id, int world) throws SQLException {

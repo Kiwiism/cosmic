@@ -13,3 +13,7 @@ databaseChangeLog:
       file: db/changelog/006-runtime-hardening.sql
   - include:
       file: db/changelog/007-movement-diagnostics.sql
+  - include:
+      file: db/changelog/008-world-default-character-settings.sql
+  - include:
+      file: db/changelog/009-apply-mode-alignment.sql

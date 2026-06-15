@@ -178,6 +178,12 @@ public final class ServerConfigurationOverrides {
             case "server.world.serverMessage" -> world.server_message = value;
             case "server.world.eventMessage" -> world.event_message = value;
             case "server.world.recommendationMessage" -> world.why_am_i_recommended = value;
+            case "server.world.defaultGmLevel" -> world.default_gm_level = Math.max(0, Math.min(Integer.parseInt(value), 6));
+            case "server.world.defaultEquipSlots" -> world.default_equip_slots = Math.max(4, Math.min(Integer.parseInt(value), 96));
+            case "server.world.defaultUseSlots" -> world.default_use_slots = Math.max(4, Math.min(Integer.parseInt(value), 96));
+            case "server.world.defaultSetupSlots" -> world.default_setup_slots = Math.max(4, Math.min(Integer.parseInt(value), 96));
+            case "server.world.defaultEtcSlots" -> world.default_etc_slots = Math.max(4, Math.min(Integer.parseInt(value), 96));
+            case "server.world.defaultStorageSlots" -> world.default_storage_slots = Math.max(4, Math.min(Integer.parseInt(value), 48));
             default -> throw new IllegalArgumentException("Unsupported world setting " + key);
         }
     }

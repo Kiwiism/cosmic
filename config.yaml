@@ -15,6 +15,12 @@ worlds:
     quest_rate: 1                           #Multiplier for Exp & Meso gains when completing a quest. Only available when USE_QUEST_RATE is true. Stacks with server Exp & Meso rates.
     fishing_rate: 1                         #Multiplier for success likelihood on meso thrown during fishing.
     travel_rate: 10                         #Means of transportation rides/departs using 1/N of the default time.
+    default_gm_level: 0                     #Default access level assigned only when creating new characters in this world.
+    default_equip_slots: 24                 #Default EQUIP inventory slots assigned only when creating new characters.
+    default_use_slots: 24                   #Default USE inventory slots assigned only when creating new characters.
+    default_setup_slots: 24                 #Default SETUP inventory slots assigned only when creating new characters.
+    default_etc_slots: 24                   #Default ETC inventory slots assigned only when creating new characters.
+    default_storage_slots: 48               #Default account storage slots when storage is first created for this world.
 
     #Properties for Bera 1
   - flag: 0

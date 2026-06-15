@@ -93,6 +93,9 @@ public abstract class CharacterFactory {
             return -2;
         }
 
+        // Server CMS/YAML policy: assign default access only at character creation.
+        newCharacter.setGMLevel(defaultGmLevelForWorld(c.getWorld()));
+
         if (!newCharacter.insertNewChar(recipe)) {
             return -2;
         }
@@ -100,8 +103,16 @@ public abstract class CharacterFactory {
 
         Server.getInstance().createCharacterEntry(newCharacter);
         Server.getInstance().broadcastGMMessage(c.getWorld(), PacketCreator.sendYellowTip("[New Char]: " + c.getAccountName() + " has created a new character with IGN " + name));
-        log.info("Account {} created chr with name {}", c.getAccountName(), name);
+        log.info("Account {} created chr with name {} in world {} with GM level {}",
+                c.getAccountName(), name, c.getWorld(), newCharacter.gmLevel());
 
         return 0;
+    }
+
+    private static int defaultGmLevelForWorld(int world) {
+        if (world < 0 || world >= YamlConfig.config.worlds.size()) {
+            return 0;
+        }
+        return YamlConfig.config.worlds.get(world).defaultGmLevel();
     }
 }
