@@ -86,7 +86,7 @@ import client.command.commands.gm2.InventoryInfoCommand;
 import client.command.commands.gm2.JailCommand;
 import client.command.commands.gm2.JobCommand;
 import client.command.commands.gm2.LevelCommand;
-import client.command.commands.gm2.LevelProCommand;
+import client.command.commands.gm2.LevelUpCommand;
 import client.command.commands.gm2.LootCommand;
 import client.command.commands.gm2.MaxSkillCommand;
 import client.command.commands.gm2.MaxStatCommand;
@@ -443,7 +443,7 @@ public class CommandsExecutor {
         addCommand("inventoryinfo", 2, InventoryInfoCommand.class); // Show self inventory slot usage.
         addCommand("mapdebug", 2, MapDebugCommand.class); // Show current-map object counts.
         addCommand("level", 2, LevelCommand.class); // Set the invoking character's level.
-        addCommand("levelpro", 2, LevelProCommand.class); // Raise the invoking character one level at a time.
+        addCommand("levelup", 2, LevelUpCommand.class); // Advance one level using the normal level-up reward pipeline.
         addCommand("job", 2, JobCommand.class); // Change only the invoking character's job.
         addCommand("setstat", 2, SetStatCommand.class); // Set all primary stats on self.
         addCommand("maxstat", 2, MaxStatCommand.class); // Maximize self primary stats.

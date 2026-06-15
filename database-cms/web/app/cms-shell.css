@@ -1,0 +1,265 @@
+.cms-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.cms-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  padding: 24px 16px;
+  overflow: hidden;
+  color: #dce0f6;
+  background: var(--dark);
+}
+
+.cms-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 26px;
+}
+
+.cms-brand strong,
+.cms-brand small {
+  display: block;
+}
+
+.cms-brand strong {
+  color: #fff;
+  font-size: 19px;
+}
+
+.cms-brand small {
+  color: #8f95b2;
+}
+
+.cms-brand-mark {
+  display: grid;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 900;
+  background: linear-gradient(135deg, #7969ed, #3f8ce8);
+  box-shadow: 0 8px 24px rgb(94 80 200 / 35%);
+}
+
+.cms-brand-mark.large {
+  width: 54px;
+  height: 54px;
+  margin: auto;
+  font-size: 20px;
+}
+
+.cms-navigation {
+  display: grid;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cms-navigation button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: #9da3bf;
+  text-align: left;
+  background: transparent;
+}
+
+.cms-navigation button:hover,
+.cms-navigation button.active {
+  color: #fff;
+  background: #2a2b47;
+}
+
+.cms-sidebar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 18px 7px 0;
+  border-top: 1px solid #2c2e48;
+  color: #8c93ae;
+  font-size: 11px;
+}
+
+.cms-main {
+  min-width: 0;
+  transition: margin-right 160ms ease;
+}
+
+.cms-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 92px;
+  padding: 18px 34px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(16px);
+}
+
+.cms-header h1 {
+  margin: 3px 0;
+  font-size: 25px;
+}
+
+.cms-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cms-status-pill {
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--good);
+  background: #ebf7f1;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cms-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.cms-search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-width: 300px;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+}
+
+.cms-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.cms-toolbar > select {
+  height: 44px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.cms-shell.inspector-standard .cms-main {
+  margin-right: 540px;
+}
+
+.cms-shell.inspector-wide .cms-main {
+  margin-right: min(920px, calc(100vw - 232px));
+}
+
+@media (max-width: 1350px) {
+  .cms-shell.inspector-standard .cms-main {
+    margin-right: 430px;
+  }
+
+  .cms-shell.inspector-wide .cms-main {
+    margin-right: min(760px, calc(100vw - 76px));
+  }
+}
+
+@media (max-width: 1100px) {
+  .cms-shell {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .cms-sidebar {
+    padding: 20px 10px;
+  }
+
+  .cms-brand {
+    padding-left: 9px;
+  }
+
+  .cms-brand > div:last-child,
+  .cms-navigation span,
+  .cms-sidebar-status {
+    display: none;
+  }
+
+  .cms-navigation button {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 900px) {
+  .cms-shell.inspector-standard .cms-main {
+    margin-right: 340px;
+  }
+}
+
+@media (max-width: 720px) {
+  .cms-shell {
+    display: block;
+  }
+
+  .cms-sidebar {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    z-index: 30;
+    display: block;
+    width: 100%;
+    height: 68px;
+    padding: 8px;
+  }
+
+  .cms-brand,
+  .cms-sidebar-status {
+    display: none;
+  }
+
+  .cms-navigation {
+    display: flex;
+    justify-content: space-around;
+  }
+
+  .cms-navigation button {
+    width: auto;
+    padding: 10px;
+  }
+
+  .cms-header {
+    padding: 14px 17px;
+  }
+
+  .cms-status-pill {
+    display: none;
+  }
+
+  .cms-shell.inspector-standard .cms-main,
+  .cms-shell.inspector-wide .cms-main {
+    margin-right: 0;
+  }
+}

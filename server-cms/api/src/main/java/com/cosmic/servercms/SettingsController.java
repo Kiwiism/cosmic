@@ -45,20 +45,26 @@ public class SettingsController {
     List<Map<String, Object>> settings(@RequestParam(defaultValue = "") String q,
                                        @RequestParam(defaultValue = "") String category,
                                        @RequestParam(defaultValue = "") String origin,
-                                       @RequestParam(defaultValue = "") String compatibility) {
+                                       @RequestParam(defaultValue = "") String compatibility,
+                                       @RequestParam(defaultValue = "") String scopeType,
+                                       @RequestParam(defaultValue = "0") int scopeId) {
         StringBuilder sql = new StringBuilder("""
                 SELECT c.*,o.id override_id,o.value_text override_value,o.reason override_reason,
-                       o.updated_at,o.scope_id,
+                       o.updated_at,
+                       CASE WHEN c.scope_type='WORLD' THEN ? ELSE 0 END scope_id,
                        COALESCE(o.value_text,c.default_value) effective_value
                 FROM setting_catalog c
                 LEFT JOIN setting_overrides o ON o.setting_key=c.setting_key AND o.active=1
-                  AND o.scope_type=c.scope_type AND o.scope_id=0
+                  AND o.scope_type=c.scope_type
+                  AND o.scope_id=CASE WHEN c.scope_type='WORLD' THEN ? ELSE 0 END
                 WHERE (c.display_name LIKE ? OR c.setting_key LIKE ? OR c.description LIKE ?)
                 """);
-        List<Object> params = new ArrayList<>(List.of("%" + q + "%", "%" + q + "%", "%" + q + "%"));
+        List<Object> params = new ArrayList<>(List.of(scopeId, scopeId,
+                "%" + q + "%", "%" + q + "%", "%" + q + "%"));
         if (!category.isBlank()) { sql.append(" AND c.category=?"); params.add(category); }
         if (!origin.isBlank()) { sql.append(" AND c.origin_type=?"); params.add(origin); }
         if (!compatibility.isBlank()) { sql.append(" AND c.compatibility=?"); params.add(compatibility); }
+        if (!scopeType.isBlank()) { sql.append(" AND c.scope_type=?"); params.add(scopeType); }
         sql.append(" ORDER BY c.category,c.sort_order,c.display_name");
         return jdbc.queryForList(sql.toString(), params.toArray());
     }
@@ -69,7 +75,9 @@ public class SettingsController {
     }
 
     @PutMapping("/settings/{key}")
-    Map<String, Object> update(@PathVariable String key, @Valid @RequestBody Update body, Principal principal) {
+    Map<String, Object> update(@PathVariable String key,
+                               @RequestParam(defaultValue = "0") int scopeId,
+                               @Valid @RequestBody Update body, Principal principal) {
         Map<String, Object> setting = one("SELECT * FROM setting_catalog WHERE setting_key=?", key);
         if (!Boolean.TRUE.equals(setting.get("editable"))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -77,22 +85,25 @@ public class SettingsController {
         }
         validate(setting, body.value());
         String scope = String.valueOf(setting.get("scope_type"));
+        int effectiveScopeId = scopeId(setting, scopeId);
         List<Map<String, Object>> previous = jdbc.queryForList(
-                "SELECT * FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=0", key, scope);
+                "SELECT * FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=?",
+                key, scope, effectiveScopeId);
         Long actor = jdbc.queryForObject("SELECT id FROM server_cms_users WHERE username=?", Long.class, principal.getName());
         jdbc.update("""
                 INSERT INTO setting_overrides(setting_key,scope_type,scope_id,value_text,reason,active,updated_by)
-                VALUES (?,?,0,?,?,1,?)
+                VALUES (?,?,?,?,?,1,?)
                 ON DUPLICATE KEY UPDATE value_text=VALUES(value_text),reason=VALUES(reason),
                   active=1,updated_by=VALUES(updated_by)
-                """, key, scope, body.value(), body.reason(), actor);
-        audit(actor, "SETTING_OVERRIDE_SET", key, previous.isEmpty() ? null : previous.getFirst(),
-                Map.of("value", body.value()), body.reason());
+                """, key, scope, effectiveScopeId, body.value(), body.reason(), actor);
+        audit(actor, "SETTING_OVERRIDE_SET", auditKey(key, scope, effectiveScopeId),
+                previous.isEmpty() ? null : previous.getFirst(),
+                Map.of("value", body.value(), "scopeId", effectiveScopeId), body.reason());
         Map<String, Object> result = one("""
-                SELECT c.*,o.value_text override_value,o.reason override_reason,o.updated_at
+                SELECT c.*,o.value_text override_value,o.reason override_reason,o.updated_at,o.scope_id
                 FROM setting_catalog c JOIN setting_overrides o ON o.setting_key=c.setting_key
-                WHERE c.setting_key=? AND o.scope_type=c.scope_type AND o.scope_id=0
-                """, key);
+                WHERE c.setting_key=? AND o.scope_type=c.scope_type AND o.scope_id=?
+                """, key, effectiveScopeId);
         result = new LinkedHashMap<>(result);
         result.put("runtimeApplied", false);
         result.put("pendingRestart", true);
@@ -101,17 +112,23 @@ public class SettingsController {
 
     @DeleteMapping("/settings/{key}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void reset(@PathVariable String key, @RequestParam @NotBlank String reason, Principal principal) {
+    void reset(@PathVariable String key,
+               @RequestParam(defaultValue = "0") int scopeId,
+               @RequestParam @NotBlank String reason, Principal principal) {
         Map<String, Object> setting = one("SELECT * FROM setting_catalog WHERE setting_key=?", key);
         if (!Boolean.TRUE.equals(setting.get("editable"))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This bootstrap setting is read-only");
         }
         String scope = String.valueOf(setting.get("scope_type"));
+        int effectiveScopeId = scopeId(setting, scopeId);
         List<Map<String, Object>> previous = jdbc.queryForList(
-                "SELECT * FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=0", key, scope);
+                "SELECT * FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=?",
+                key, scope, effectiveScopeId);
         Long actor = jdbc.queryForObject("SELECT id FROM server_cms_users WHERE username=?", Long.class, principal.getName());
-        jdbc.update("DELETE FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=0", key, scope);
-        audit(actor, "SETTING_OVERRIDE_RESET", key, previous.isEmpty() ? null : previous.getFirst(), null, reason);
+        jdbc.update("DELETE FROM setting_overrides WHERE setting_key=? AND scope_type=? AND scope_id=?",
+                key, scope, effectiveScopeId);
+        audit(actor, "SETTING_OVERRIDE_RESET", auditKey(key, scope, effectiveScopeId),
+                previous.isEmpty() ? null : previous.getFirst(), null, reason);
     }
 
     @GetMapping("/audit")
@@ -150,6 +167,20 @@ public class SettingsController {
         } catch (RuntimeException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Value does not match the setting type or range");
         }
+    }
+
+    private int scopeId(Map<String, Object> setting, int requestedScopeId) {
+        if (!"WORLD".equals(String.valueOf(setting.get("scope_type")))) {
+            return 0;
+        }
+        if (requestedScopeId < 0 || requestedScopeId > 20) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "World ID must be between 0 and 20");
+        }
+        return requestedScopeId;
+    }
+
+    private String auditKey(String key, String scope, int scopeId) {
+        return "WORLD".equals(scope) ? key + "[world=" + scopeId + "]" : key;
     }
 
     private void audit(Long actor, String action, String key, Object before, Object after, String reason) {

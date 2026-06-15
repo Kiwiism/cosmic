@@ -7968,23 +7968,113 @@ public class Character extends AbstractCharacterObject {
     }
 
     /**
-     * Refunds primary-stat AP without changing HP/MP or HP/MP AP usage.
+     * Resets primary stats and restores the AP pool legitimately earned from
+     * character creation, level-ups, and job advancements. AP already spent
+     * into HP/MP remains reserved so HP/MP washing is not refunded twice.
      *
-     * @return refunded AP, or -1 when the resulting AP pool would exceed the configured cap
+     * @return available AP after reset, or -1 when the resulting AP pool would exceed the configured cap
      */
     public synchronized int resetAbilityPoints() {
-        int refundedAp = (str - 4) + (dex - 4) + (int_ - 4) + (luk - 4);
-        if (refundedAp <= 0) {
-            return 0;
-        }
-
-        long newRemainingAp = (long) remainingAp + refundedAp;
+        int legitimateAp = calculateLegitimateAbilityPoints(job, level);
+        int newRemainingAp = Math.max(0, legitimateAp - hpMpApUsed);
         if (newRemainingAp > YamlConfig.config.server.MAX_AP) {
             return -1;
         }
 
-        updateStrDexIntLuk(4, 4, 4, 4, (int) newRemainingAp);
-        return refundedAp;
+        updateStrDexIntLuk(4, 4, 4, 4, newRemainingAp);
+        return newRemainingAp;
+    }
+
+    static int calculateLegitimateAbilityPoints(Job job, int level) {
+        int normalizedLevel = Math.max(1, Math.min(level, GameConstants.isCygnus(job.getId()) ? 120 : 200));
+        int earnedAp = YamlConfig.config.server.USE_STARTING_AP_4 ? 0 : 9;
+
+        for (int levelBeforeGain = 1; levelBeforeGain < normalizedLevel; levelBeforeGain++) {
+            earnedAp += getLevelUpAbilityPointGain(job, levelBeforeGain);
+        }
+
+        return earnedAp + getJobAdvancementAbilityPoints(job, normalizedLevel);
+    }
+
+    private static int getLevelUpAbilityPointGain(Job job, int levelBeforeGain) {
+        int gain = 5;
+        if (GameConstants.isCygnus(job.getId()) && levelBeforeGain > 10) {
+            if (levelBeforeGain <= 17) {
+                gain += 2;
+            } else if (levelBeforeGain < 77) {
+                gain++;
+            }
+        }
+        return gain;
+    }
+
+    private static int getJobAdvancementAbilityPoints(Job job, int level) {
+        if (isBeginnerJob(job)) {
+            return 0;
+        }
+
+        int[] stageJobIds = getAbilityPointAdvancementJobIds(job);
+        int[] advancementLevels = getAbilityPointAdvancementLevels(job);
+        int stages = Math.min(stageJobIds.length, advancementLevels.length);
+        int earnedAp = 0;
+        for (int stage = 0; stage < stages; stage++) {
+            if (level >= advancementLevels[stage]) {
+                earnedAp += getJobAdvancementAbilityPointGain(stageJobIds[stage]);
+            }
+        }
+        return earnedAp;
+    }
+
+    private static int[] getAbilityPointAdvancementJobIds(Job job) {
+        int jobId = job.getId();
+        if (jobId >= Job.EVAN1.getId() && jobId <= Job.EVAN10.getId()) {
+            int[] evanJobs = {
+                    Job.EVAN1.getId(), Job.EVAN2.getId(), Job.EVAN3.getId(), Job.EVAN4.getId(), Job.EVAN5.getId(),
+                    Job.EVAN6.getId(), Job.EVAN7.getId(), Job.EVAN8.getId(), Job.EVAN9.getId(), Job.EVAN10.getId()
+            };
+            int stages = Math.min(GameConstants.getSkillBook(jobId) + 1, evanJobs.length);
+            return Arrays.copyOf(evanJobs, stages);
+        }
+
+        int stages = Math.min(GameConstants.getJobBranch(job), 4);
+        int[] stageJobs = new int[stages];
+        if (stages >= 1) {
+            stageJobs[0] = (jobId / 100) * 100;
+        }
+        if (stages >= 2) {
+            stageJobs[1] = (jobId / 10) * 10;
+        }
+        if (stages >= 3) {
+            stageJobs[2] = stageJobs[1] + 1;
+        }
+        if (stages >= 4) {
+            stageJobs[3] = stageJobs[1] + 2;
+        }
+        return stageJobs;
+    }
+
+    private static int[] getAbilityPointAdvancementLevels(Job job) {
+        if (job.getId() >= Job.EVAN1.getId() && job.getId() <= Job.EVAN10.getId()) {
+            return new int[]{10, 20, 30, 40, 50, 60, 80, 100, 120, 160};
+        }
+        return new int[]{isMagicianLine(job) ? 8 : 10, 30, 70, 120};
+    }
+
+    private static int getJobAdvancementAbilityPointGain(int jobId) {
+        if (jobId % 100 >= 1) {
+            if (GameConstants.isCygnus(jobId)) {
+                return 7;
+            }
+            if (YamlConfig.config.server.USE_STARTING_AP_4 || jobId % 10 >= 1) {
+                return 5;
+            }
+            return 0;
+        }
+
+        if (YamlConfig.config.server.USE_STARTING_AP_4 && jobId % 1000 >= 1) {
+            return 4;
+        }
+        return 0;
     }
 
     /**

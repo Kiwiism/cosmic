@@ -40,9 +40,8 @@ public class CommandController {
                 row -> overrides.put(String.valueOf(row.get("command_name")), row));
         String needle = q.toLowerCase(Locale.ROOT);
         return sourceCommands().stream().filter(command ->
-                        (needle.isBlank() || String.valueOf(command.get("name")).contains(needle)
+                        needle.isBlank() || String.valueOf(command.get("name")).contains(needle)
                                 || String.valueOf(command.get("description")).toLowerCase(Locale.ROOT).contains(needle))
-                                && (level == null || Objects.equals(command.get("originalLevel"), level)))
                 .map(command -> {
                     Map<String, Object> result = new LinkedHashMap<>(command);
                     Map<String, Object> override = overrides.get(command.get("name"));
@@ -52,7 +51,9 @@ public class CommandController {
                     result.put("overridden", override != null);
                     result.put("reason", override == null ? null : override.get("reason"));
                     return result;
-                }).toList();
+                })
+                .filter(command -> level == null || Objects.equals(command.get("effectiveLevel"), level))
+                .toList();
     }
 
     @PutMapping("/{name}")

@@ -59,6 +59,8 @@ public class TimerManager implements TimerManagerMBean {
         if (ses != null && !ses.isShutdown() && !ses.isTerminated()) {
             return;
         }
+        // The server clock must be based on wall time before login/session tasks can use it.
+        Server.getInstance().forceUpdateCurrentTime();
         ServerExecutors.getInstance().start();
         ses = ServerExecutors.getInstance().gameplayScheduler();
     }

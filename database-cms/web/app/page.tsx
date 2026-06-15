@@ -6,6 +6,9 @@ import {
   ShieldCheck, ShoppingBasket, Skull, Store, Ticket, Trash2, UsersRound, X
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CmsAuth, CmsConnectionError } from "../components/auth/CmsAuth";
+import { CmsNavItem, CmsShell } from "../components/layout/CmsShell";
+import { PageToolbar } from "../components/ui/PageToolbar";
 import { api, assetUrl, assetUrls } from "../lib/api";
 
 type View = "dashboard"|"items"|"mobs"|"maps"|"npcs"|"skills"|"shops"|"gacha"|"accounts"|"inventory"|"audit";
@@ -19,12 +22,12 @@ type Jump={view:View;id?:number;type?:string};
 type HistoryEntry={type:string;id:number;name?:string};
 type Notify=(message:string)=>void;
 
-const nav = [
-  ["dashboard","Dashboard",Activity],["items","Items",PackageSearch],["mobs","Mobs",Skull],
-  ["maps","Maps",MapPinned],["npcs","NPCs",UsersRound],["skills","Skills",BookOpen],
-  ["shops","Shops",ShoppingBasket],["gacha","Gachapon",Ticket],["accounts","Accounts",UsersRound],
-  ["inventory","Inventory & storage",Boxes],["audit","Audit",ShieldCheck],
-] as const;
+const nav:readonly CmsNavItem<View>[] = [
+  {key:"dashboard",label:"Dashboard",icon:Activity},{key:"items",label:"Items",icon:PackageSearch},{key:"mobs",label:"Mobs",icon:Skull},
+  {key:"maps",label:"Maps",icon:MapPinned},{key:"npcs",label:"NPCs",icon:UsersRound},{key:"skills",label:"Skills",icon:BookOpen},
+  {key:"shops",label:"Shops",icon:ShoppingBasket},{key:"gacha",label:"Gachapon",icon:Ticket},{key:"accounts",label:"Accounts",icon:UsersRound},
+  {key:"inventory",label:"Inventory & storage",icon:Boxes},{key:"audit",label:"Audit",icon:ShieldCheck},
+];
 const catalogItemTypes=["EQUIP","FACE","HAIR","CONSUME","SETUP","ETC","CASH"];
 const inventoryItemTypes=["EQUIP","CONSUME","SETUP","ETC","CASH"];
 const itemCategories:Record<string,string[]>={
@@ -45,6 +48,7 @@ export default function App(){
   const [startupError,setStartupError]=useState("");
   const [notice,setNotice]=useState("");
   const [drawer,setDrawer]=useState<{type:string;id:number;context?:string}|null>(null);
+  const [embeddedInspector,setEmbeddedInspector]=useState<"none"|"standard"|"wide">("none");
   const [viewHistory,setViewHistory]=useState<HistoryEntry[]>([]);const [historyIndex,setHistoryIndex]=useState(-1);
   const [focusId,setFocusId]=useState<number>();
 
@@ -62,18 +66,15 @@ export default function App(){
   function moveHistory(index:number){const entry=viewHistory[index];if(!entry)return;setHistoryIndex(index);setDrawer({type:entry.type,id:entry.id})}
   function nameHistory(type:string,id:number,name:string){setViewHistory(previous=>previous.map(entry=>entry.type===type&&entry.id===id?{...entry,name}:entry))}
   if(authenticated===null)return <div className="splash">Preparing Cosmic Database CMS...</div>;
-  if(startupError)return <ConnectionError message={startupError}/>;
-  if(!authenticated)return <Auth setup={setupRequired} onReady={()=>setAuthenticated(true)}/>;
-  return <div className="app-shell">
-    <aside><div className="brand"><div className="brand-mark">CS</div><div><strong>Cosmic</strong><small>Database CMS</small></div></div>
-      <nav>{nav.map(([key,label,Icon])=><button key={key} className={view===key?"active":""} onClick={()=>{setView(key);setFocusId(undefined);setDrawer(null)}}>
-        <Icon size={18}/><span>{label}</span></button>)}</nav>
-      <div className="side-status"><Database size={16}/> MySQL connected</div>
-    </aside>
-    <main><header><div><p className="eyebrow">COSMIC OPERATIONS</p><h1>{nav.find(([k])=>k===view)?.[1]}</h1></div>
-      <div className="header-actions"><span className="live-pill">v83 data explorer</span><CircleUserRound size={30}/></div></header>
+  if(startupError)return <CmsConnectionError mark="CS" productName="Database CMS" message={startupError}/>;
+  if(!authenticated)return <CmsAuth mark="CS" productName="Database CMS" secureLabel="SECURE ACCESS" setup={setupRequired} onReady={()=>setAuthenticated(true)}/>;
+  const inspector=drawer&&<EntityDrawer entity={drawer} close={()=>setDrawer(null)} jump={jump} history={viewHistory} historyIndex={historyIndex} moveHistory={moveHistory} named={nameHistory}/>;
+  return <CmsShell activeView={view} brandMark="CS" brandSubtitle="Database CMS" eyebrow="COSMIC OPERATIONS"
+    headerStatus="v83 data explorer" inspectorOpen={Boolean(drawer)||embeddedInspector!=="none"}
+    inspectorSize={embeddedInspector==="wide"?"wide":"standard"} navigation={nav}
+    onNavigate={next=>{setView(next);setFocusId(undefined);setDrawer(null);setEmbeddedInspector("none")}}
+    sidebarStatus={<><Database size={16}/> MySQL connected</>} inspector={inspector}>
       {notice&&<div className="notice" onClick={()=>setNotice("")}>{notice}</div>}
-      <section className="workspace">
         {view==="dashboard"&&<Dashboard/>}
         {view==="items"&&<Library fixedType="ITEM" onOpen={inspectEntity}/>}
         {view==="mobs"&&<Drops notify={setNotice} focusMob={focusId} onOpen={(type,id)=>openDrawer(type,id,type==="MOB"?"drops":undefined)}/>}
@@ -83,31 +84,10 @@ export default function App(){
         {view==="shops"&&<Shops notify={setNotice} focusShop={focusId} onOpen={inspectEntity}/>}
         {view==="gacha"&&<Gachapon notify={setNotice} onOpen={inspectEntity}/>}
         {view==="accounts"&&<Accounts notify={setNotice} onCharacter={id=>jump({view:"inventory",id})}/>}
-        {view==="inventory"&&<Inventory notify={setNotice} focusCharacter={focusId} onOpen={inspectEntity} jump={jump}/>}
+        {view==="inventory"&&<Inventory notify={setNotice} focusCharacter={focusId} onOpen={inspectEntity} jump={jump} onInspectorChange={setEmbeddedInspector}/>}
         {view==="audit"&&<Audit/>}
-      </section>
-    </main>
-    {drawer&&<EntityDrawer entity={drawer} close={()=>setDrawer(null)} jump={jump} history={viewHistory} historyIndex={historyIndex} moveHistory={moveHistory} named={nameHistory}/>}
-  </div>
+  </CmsShell>
 }
-
-function Auth({setup,onReady}:{setup:boolean;onReady:()=>void}){
-  const [error,setError]=useState("");
-  async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);try{
-    if(setup)await api("/api/setup",{method:"POST",body:JSON.stringify({username:f.get("username"),displayName:f.get("displayName"),password:f.get("password")})});
-    await api("/api/auth/login",{method:"POST",body:JSON.stringify({username:f.get("username"),password:f.get("password")})});onReady()
-  }catch(err){setError((err as Error).message)}}
-  return <div className="auth-page"><form className="auth-card" onSubmit={submit}><div className="brand-mark large">CS</div>
-    <p className="eyebrow">{setup?"FIRST RUN":"SECURE ACCESS"}</p><h1>{setup?"Create the Owner account":"Welcome back"}</h1>
-    {setup&&<label>Display name<input name="displayName" required minLength={2}/></label>}
-    <label>Username<input name="username" required autoFocus/></label><label>Password<input name="password" type="password" required minLength={setup?5:1}/></label>
-    {error&&<div className="form-error">{error}</div>}<button className="primary">{setup?"Create owner":"Sign in"}<ChevronRight size={17}/></button>
-  </form></div>
-}
-
-function ConnectionError({message}:{message:string}){return <div className="auth-page"><div className="auth-card"><div className="brand-mark large">CS</div>
-  <p className="eyebrow">CONNECTION REQUIRED</p><h1>CMS API unavailable</h1><p>{message}</p>
-  <button className="primary" onClick={()=>location.reload()}><RefreshCw size={16}/>Try again</button></div></div>}
 
 function Dashboard(){
   const [data,setData]=useState<any>();useEffect(()=>{api("/api/dashboard").then(setData)},[]);
@@ -146,12 +126,12 @@ function Library({fixedType,onOpen}:{fixedType:"ITEM"|"NPC";onOpen:(type:string,
     if(minLevel)p.set("minLevel",minLevel);if(maxLevel)p.set("maxLevel",maxLevel);if(job)p.set("jobId",job);if(region)p.set("region",region);
     api<Page<Entity>>(`/api/catalog/search?${p}`).then(setData)},180);return()=>clearTimeout(timer)},[query,type,subtype,category,minLevel,maxLevel,job,region,usedOnly,sort,direction,page]);
   useEffect(()=>setPage(0),[query,type,subtype,category,minLevel,maxLevel,job,region,usedOnly,sort,direction]);
-  return <><div className="filter-deck"><SearchInput value={query} setValue={setQuery} placeholder="Search every name or ID"/>
+  return <><PageToolbar query={query} onQueryChange={setQuery} placeholder="Search every name or ID">
     {type==="ITEM"&&<><select value={subtype} onChange={e=>{setSubtype(e.target.value);setCategory("")}}><option value="">All item types</option>{catalogItemTypes.map(x=><option key={x}>{x}</option>)}</select>
       <select value={category} onChange={e=>setCategory(e.target.value)} disabled={!subtype}><option value="">All {subtype||"subcategories"}</option>{(itemCategories[subtype]||[]).map(x=><option key={x}>{x}</option>)}</select></>}
     <label className="filter-check"><input type="checkbox" checked={usedOnly} onChange={e=>setUsedOnly(e.target.checked)}/>Used in game only</label>
     <select value={sort} onChange={e=>setSort(e.target.value)}><option value="name">Sort: name</option><option value="id">Sort: ID</option><option value="level">Sort: level</option><option value="type">Sort: type</option></select>
-    <button className="secondary" onClick={()=>setDirection(direction==="asc"?"desc":"asc")}>{direction==="asc"?"Ascending":"Descending"}</button></div>
+    <button className="secondary" onClick={()=>setDirection(direction==="asc"?"desc":"asc")}>{direction==="asc"?"Ascending":"Descending"}</button></PageToolbar>
     <div className="results-bar"><strong>{data.total.toLocaleString()} records</strong><Pager page={data.page} pages={data.pages} setPage={setPage}/></div>
     <div className="entity-grid">{data.items.map(row=><EntityCard key={`${row.entity_type}-${row.entity_id}`} row={row} open={()=>onOpen(row.entity_type,row.entity_id)}/>)}</div>
     <Pager page={data.page} pages={data.pages} setPage={setPage}/>
@@ -257,7 +237,7 @@ function Shops({notify,focusShop,onOpen}:{notify:Notify;focusShop?:number;onOpen
   async function addItem(item:Entity){if(!selected)return;const price=Number(prompt("Price","1"));if(Number.isNaN(price))return;const position=(items.at(-1)?.position||100)+4;await api(`/api/shops/${selected}/items`,{method:"POST",body:JSON.stringify({itemId:item.entity_id,price,pitch:0,position,reason:"Added in CMS"})});loadItems()}
   async function remove(row:any){if(!confirm("Delete this shop item?"))return;await api(`/api/shops/${selected}/items/${row.shopitemid}?reason=Deleted%20from%20CMS`,{method:"DELETE"});loadItems()}
   async function drag(row:any,target:any){if(row.shopitemid===target.shopitemid)return;await api(`/api/shops/${selected}/items/swap`,{method:"POST",body:JSON.stringify({firstItemId:row.shopitemid,secondItemId:target.shopitemid,reason:"Reordered in CMS"})});notify("Shop order updated");await loadItems()}
-  return <><div className="toolbar"><SearchInput value={query} setValue={setQuery} placeholder="Search NPC, shop ID or NPC ID"/><button className="primary" onClick={createShop}>New shop</button></div>
+  return <><PageToolbar query={query} onQueryChange={setQuery} placeholder="Search NPC, shop ID or NPC ID"><button className="primary" onClick={createShop}>New shop</button></PageToolbar>
     <div className="split-list"><div className="list-column"><Pager page={page} pages={Math.ceil(shops.length/12)} setPage={setPage}/><div className="list-panel">{shops.slice(page*12,page*12+12).map(s=><button key={s.shopid} className={selected===s.shopid?"selected":""} onClick={()=>setSelected(s.shopid)}>
       <EntityImage className="list-avatar" type="NPC" id={s.npcid}/><span><strong>{s.primary_map_name?`${s.npc_name||`NPC ${s.npcid}`}: ${s.primary_map_name}`:s.npc_name||`NPC ${s.npcid}`}</strong><small>Shop {s.shopid} | {s.item_count} items</small><small>{s.npcid}</small></span><ChevronRight size={16}/></button>)}</div><Pager page={page} pages={Math.ceil(shops.length/12)} setPage={setPage}/></div>
       <article className="panel"><PanelTitle title={selected?`Shop ${selected}`:"Choose a shop"} subtitle="Drag rows to reorder. Click price or position to edit."/>
@@ -276,7 +256,7 @@ function Gachapon({notify,onOpen}:{notify:Notify;onOpen:(type:string,id:number)=
   async function add(item:Entity){if(!selected)return;const tier=Number(prompt("Tier: 0 common, 1 uncommon, 2 rare","0"));await api(`/api/gachapon/${selected}`,{method:"POST",body:JSON.stringify({tier,itemId:item.entity_id,npcId:null,enabled:true,reason:"Added in CMS"})});notify("Gachapon override updated");load()}
   async function remove(row:any){if(!confirm("Remove reward?"))return;await api(`/api/gachapon/${selected}/${row.id}?reason=Deleted%20from%20CMS`,{method:"DELETE"});load()}
   const filteredLocations=locations.filter(x=>!query||gachaponTown(x.location_code).toLowerCase().includes(query.toLowerCase())||String(x.npc_id||"").includes(query));
-  return <><div className="filter-deck"><SearchInput value={query} setValue={v=>{setQuery(v);setPage(0)}} placeholder="Search gachapon town or NPC ID"/></div><div className="source-banner"><Ticket size={18}/><div><strong>Live database override</strong><span>The game server reads these rows first and falls back to the original Java reward arrays when a location has no CMS entries.</span></div></div>
+  return <><PageToolbar query={query} onQueryChange={v=>{setQuery(v);setPage(0)}} placeholder="Search gachapon town or NPC ID"/><div className="source-banner"><Ticket size={18}/><div><strong>Live database override</strong><span>The game server reads these rows first and falls back to the original Java reward arrays when a location has no CMS entries.</span></div></div>
     <div className="split-list"><div className="list-column"><Pager page={page} pages={Math.ceil(filteredLocations.length/8)} setPage={setPage}/><div className="list-panel">{filteredLocations.slice(page*8,page*8+8).map(x=><button key={x.location_code} className={selected===x.location_code?"selected":""} onClick={()=>setSelected(x.location_code)}>
       {x.npc_id?<EntityImage className="list-avatar" type="NPC" id={x.npc_id}/>:<Ticket className="list-avatar"/>}<span><strong>{x.location_code==="GLOBAL"?"Global Gachapon":`Gachapon: ${gachaponTown(x.location_code)}`}</strong><small>{x.item_count} rewards | {x.region_name||"Global pool"}</small><small>{x.npc_id||"GLOBAL"}</small></span><ChevronRight size={16}/></button>)}</div><Pager page={page} pages={Math.ceil(filteredLocations.length/8)} setPage={setPage}/></div>
       <article className="panel"><PanelTitle title={selected?(selected==="GLOBAL"?"Global Gachapon":`Gachapon: ${gachaponTown(selected)}`):"Choose a gachapon"} subtitle="Common 90%, uncommon 8%, rare 2% before global-pool mixing"/>
@@ -292,7 +272,7 @@ function Accounts({notify,onCharacter}:{notify:Notify;onCharacter:(id:number)=>v
   useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[query,sort,direction,page]);
   async function choose(row:any){setSelected(row);setCharacters(await api<any[]>(`/api/accounts/${row.id}/characters`))}
   async function saveAccount(field:string,value:any){const row={...selected,[field]:value};const updated=await api<any>(`/api/accounts/${row.id}`,{method:"PATCH",body:JSON.stringify({banned:!!row.banned,banReason:row.banreason||"",mute:!!row.mute,nxCredit:Number(row.nxCredit||0),maplePoint:Number(row.maplePoint||0),nxPrepaid:Number(row.nxPrepaid||0),characterSlots:Number(row.characterslots||3),reason:`Inline ${field} update`})});setSelected(updated);notify("Account updated");load()}
-  return <><div className="filter-deck"><SearchInput value={query} setValue={setQuery} placeholder="Account, email, character name or ID"/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="lastlogin">Last login</option><option value="id">Account ID</option><option value="name">Account name</option><option value="created">Created date</option><option value="characters">Character count</option></select><button className="secondary" onClick={()=>setDirection(direction==="asc"?"desc":"asc")}>{direction}</button></div>
+  return <><PageToolbar query={query} onQueryChange={setQuery} placeholder="Account, email, character name or ID"><select value={sort} onChange={e=>setSort(e.target.value)}><option value="lastlogin">Last login</option><option value="id">Account ID</option><option value="name">Account name</option><option value="created">Created date</option><option value="characters">Character count</option></select><button className="secondary" onClick={()=>setDirection(direction==="asc"?"desc":"asc")}>{direction}</button></PageToolbar>
     <div className="split-list"><div className="list-column"><Pager page={page} pages={data.pages} setPage={setPage}/><div className="list-panel">{data.items.map(row=><button key={row.id} className={selected?.id===row.id?"selected":""} onClick={()=>choose(row)}>
       <div className="account-orb">{row.name.slice(0,2).toUpperCase()}</div><span><strong>{row.name}</strong><small>#{row.id} | {row.character_names||"No characters"}</small></span>{row.banned&&<span className="danger-tag">Banned</span>}</button>)}</div><Pager page={page} pages={data.pages} setPage={setPage}/></div>
       <article className="panel">{selected?<><PanelTitle title={selected.name} subtitle={`${selected.email||"No email"} | ${selected.loggedin?"Online":"Offline"}`}/>
@@ -304,9 +284,13 @@ function Accounts({notify,onCharacter}:{notify:Notify;onCharacter:(id:number)=>v
       </>:<Empty text="Choose an account to inspect and edit"/>}</article></div></>
 }
 
-function Inventory({notify,focusCharacter,onOpen,jump}:{notify:Notify;focusCharacter?:number;onOpen:(type:string,id:number)=>void;jump:(x:Jump)=>void}){
+function Inventory({notify,focusCharacter,onOpen,jump,onInspectorChange}:{notify:Notify;focusCharacter?:number;onOpen:(type:string,id:number)=>void;jump:(x:Jump)=>void;onInspectorChange:(size:"none"|"standard"|"wide")=>void}){
   const [character,setCharacter]=useState<any|null>(null);const [items,setItems]=useState<any[]>([]);const [editing,setEditing]=useState<any|null>(null);const [editingStorage,setEditingStorage]=useState<any|null>(null);const [storage,setStorage]=useState<any[]>([]);const [editingCharacter,setEditingCharacter]=useState(false);
   const [accounts,setAccounts]=useState<any[]>([]);const [browseAccount,setBrowseAccount]=useState<any>();const [accountCharacters,setAccountCharacters]=useState<any[]>([]);
+  useEffect(()=>{
+    onInspectorChange(editing?"wide":editingStorage||editingCharacter?"standard":"none");
+    return()=>onInspectorChange("none");
+  },[editing,editingStorage,editingCharacter,onInspectorChange]);
   useEffect(()=>{api<Page<any>>("/api/accounts?sort=name&direction=asc&page=0&size=200").then(r=>setAccounts(r.items))},[]);
   async function chooseAccount(account:any){setBrowseAccount(account);setAccountCharacters(await api<any[]>(`/api/accounts/${account.id}/characters`))}
   useEffect(()=>{if(focusCharacter)api<any[]>(`/api/characters/search?query=${focusCharacter}`).then(r=>r[0]&&setCharacter(r[0]))},[focusCharacter]);

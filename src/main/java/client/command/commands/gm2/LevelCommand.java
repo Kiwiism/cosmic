@@ -26,30 +26,37 @@ package client.command.commands.gm2;
 import client.Character;
 import client.Client;
 import client.command.Command;
-import config.YamlConfig;
 
 public class LevelCommand extends Command {
     {
-        setDescription("Set your level.");
+        setDescription("Set your level, applying normal level-up rewards for every gained level.");
     }
 
     @Override
     public void execute(Client c, String[] params) {
         Character player = c.getPlayer();
         if (params.length < 1) {
-            player.yellowMessage("Syntax: !level <newlevel>");
+            player.yellowMessage("Syntax: @level <newlevel>");
             return;
         }
 
-        player.loseExp(player.getExp(), false, false);
-        player.setLevel(Math.min(Integer.parseInt(params[0]), player.getMaxClassLevel()) - 1);
-
-        player.resetPlayerRates();
-        if (YamlConfig.config.server.USE_ADD_RATES_BY_LEVEL) {
-            player.setPlayerRates();
+        int targetLevel;
+        try {
+            targetLevel = Integer.parseInt(params[0]);
+        } catch (NumberFormatException exception) {
+            player.yellowMessage("Syntax: @level <newlevel>");
+            return;
         }
-        player.setWorldRates();
 
-        player.levelUp(false);
+        int levelChange = LevelUpCommand.levelTo(player, targetLevel);
+        if (levelChange > 0) {
+            player.yellowMessage("Level set to " + player.getLevel() + ". Applied " + levelChange
+                    + " normal level-up reward(s).");
+        } else if (levelChange < 0) {
+            player.yellowMessage("Level set to " + player.getLevel()
+                    + ". Level-up rewards are only applied when increasing level.");
+        } else {
+            player.yellowMessage("You are already level " + player.getLevel() + ".");
+        }
     }
 }

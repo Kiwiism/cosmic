@@ -6,20 +6,19 @@ import client.command.Command;
 
 public class ResetApCommand extends Command {
     {
-        setDescription("Reset primary stats to 4 and refund the assigned AP.");
+        setDescription("Reset primary stats to 4 and restore legitimate AP from level and job progression.");
     }
 
     @Override
     public void execute(Client client, String[] params) {
         Character player = client.getPlayer();
-        int refundedAp = player.resetAbilityPoints();
+        int availableAp = player.resetAbilityPoints();
 
-        if (refundedAp < 0) {
+        if (availableAp < 0) {
             player.yellowMessage("AP reset cancelled because the refunded AP would exceed the configured AP limit.");
-        } else if (refundedAp == 0) {
-            player.yellowMessage("Your primary stats are already fully reset.");
         } else {
-            player.yellowMessage("Primary stats reset. Refunded " + refundedAp + " AP.");
+            player.yellowMessage("Primary stats reset. Available AP restored to the legitimate total of "
+                    + availableAp + ".");
         }
     }
 }
