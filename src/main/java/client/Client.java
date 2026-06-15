@@ -959,14 +959,15 @@ public class Client extends ChannelInboundHandlerAdapter {
                 }
             }
 
-            if (player.getMap() != null) {
-                int mapId = player.getMapId();
-                player.getMap().removePlayer(player);
+            MapleMap currentMap = player.getMap();
+            if (currentMap != null) {
+                int mapId = currentMap.getId();
+                currentMap.removePlayer(player);
                 if (MapId.isDojo(mapId)) {
                     this.getChannelServer().freeDojoSectionIfEmpty(mapId);
                 }
                 
-                if (player.getMap().getHPDec() > 0) {
+                if (currentMap.getHPDec() > 0) {
                     getWorldServer().removePlayerHpDecrease(player);
                 }
             }

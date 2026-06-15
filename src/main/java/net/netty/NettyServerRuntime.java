@@ -55,9 +55,14 @@ public final class NettyServerRuntime {
         }
 
         log.info("Stopping shared Netty event loops");
-        acceptorGroup.shutdownGracefully().syncUninterruptibly();
-        workerGroup.shutdownGracefully().syncUninterruptibly();
-        acceptorGroup = null;
-        workerGroup = null;
+        try {
+            acceptorGroup.shutdownGracefully().syncUninterruptibly();
+            if (workerGroup != null) {
+                workerGroup.shutdownGracefully().syncUninterruptibly();
+            }
+        } finally {
+            acceptorGroup = null;
+            workerGroup = null;
+        }
     }
 }

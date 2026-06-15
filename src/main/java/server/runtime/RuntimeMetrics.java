@@ -31,6 +31,10 @@ public final class RuntimeMetrics implements RuntimeMetricsMBean {
     private volatile IntSupplier persistenceQueueDepth = () -> 0;
     private volatile IntSupplier gameplaySchedulerQueueDepth = () -> 0;
     private volatile IntSupplier maintenanceSchedulerQueueDepth = () -> 0;
+    private volatile IntSupplier backgroundActiveCount = () -> 0;
+    private volatile IntSupplier persistenceActiveCount = () -> 0;
+    private volatile IntSupplier gameplaySchedulerActiveCount = () -> 0;
+    private volatile IntSupplier maintenanceSchedulerActiveCount = () -> 0;
 
     private RuntimeMetrics() {
         try {
@@ -100,6 +104,14 @@ public final class RuntimeMetrics implements RuntimeMetricsMBean {
         maintenanceSchedulerQueueDepth = maintenanceScheduler;
     }
 
+    public void bindActiveCounts(IntSupplier background, IntSupplier persistence,
+                                 IntSupplier gameplayScheduler, IntSupplier maintenanceScheduler) {
+        backgroundActiveCount = background;
+        persistenceActiveCount = persistence;
+        gameplaySchedulerActiveCount = gameplayScheduler;
+        maintenanceSchedulerActiveCount = maintenanceScheduler;
+    }
+
     public String healthSnapshot() {
         return "packets=" + packetsHandled.get()
                 + ", slowPackets=" + slowPackets.get()
@@ -107,6 +119,10 @@ public final class RuntimeMetrics implements RuntimeMetricsMBean {
                 + ", maintenanceQueue=" + getMaintenanceSchedulerQueueDepth()
                 + ", backgroundQueue=" + getBackgroundQueueDepth()
                 + ", persistenceQueue=" + getPersistenceQueueDepth()
+                + ", activeWorkers={background=" + getBackgroundActiveCount()
+                + ", persistence=" + getPersistenceActiveCount()
+                + ", gameplay=" + getGameplaySchedulerActiveCount()
+                + ", maintenance=" + getMaintenanceSchedulerActiveCount() + "}"
                 + ", saveFailures=" + characterSaveFailures.get()
                 + ", rejectedTasks=" + rejectedTasks.get();
     }
@@ -194,5 +210,25 @@ public final class RuntimeMetrics implements RuntimeMetricsMBean {
     @Override
     public int getMaintenanceSchedulerQueueDepth() {
         return maintenanceSchedulerQueueDepth.getAsInt();
+    }
+
+    @Override
+    public int getBackgroundActiveCount() {
+        return backgroundActiveCount.getAsInt();
+    }
+
+    @Override
+    public int getPersistenceActiveCount() {
+        return persistenceActiveCount.getAsInt();
+    }
+
+    @Override
+    public int getGameplaySchedulerActiveCount() {
+        return gameplaySchedulerActiveCount.getAsInt();
+    }
+
+    @Override
+    public int getMaintenanceSchedulerActiveCount() {
+        return maintenanceSchedulerActiveCount.getAsInt();
     }
 }

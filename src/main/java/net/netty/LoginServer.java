@@ -31,9 +31,10 @@ public class LoginServer extends AbstractServer {
     @Override
     public void stop() {
         if (channel == null) {
-            throw new IllegalStateException("Must start LoginServer before stopping it");
+            return;
         }
 
         channel.close().syncUninterruptibly();
+        channel = null;
     }
 }

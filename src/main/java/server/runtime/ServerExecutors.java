@@ -46,6 +46,11 @@ public final class ServerExecutors {
                 () -> persistence.getQueue().size(),
                 () -> gameplayScheduler.getQueue().size(),
                 () -> maintenanceScheduler.getQueue().size());
+        RuntimeMetrics.getInstance().bindActiveCounts(
+                background::getActiveCount,
+                persistence::getActiveCount,
+                gameplayScheduler::getActiveCount,
+                maintenanceScheduler::getActiveCount);
     }
 
     private ThreadPoolExecutor createPool(String name, int threads, int queueCapacity) {
@@ -83,10 +88,12 @@ public final class ServerExecutors {
     }
 
     public void executeBackground(Runnable task) {
+        start();
         background.execute(task);
     }
 
     public void executePersistence(Runnable task) {
+        start();
         RuntimeMetrics.getInstance().recordPersistenceQueued();
         try {
             persistence.execute(() -> {
@@ -103,10 +110,12 @@ public final class ServerExecutors {
     }
 
     public ScheduledThreadPoolExecutor gameplayScheduler() {
+        start();
         return gameplayScheduler;
     }
 
     public ScheduledThreadPoolExecutor maintenanceScheduler() {
+        start();
         return maintenanceScheduler;
     }
 

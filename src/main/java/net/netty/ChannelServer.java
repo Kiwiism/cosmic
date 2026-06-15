@@ -33,9 +33,10 @@ public class ChannelServer extends AbstractServer {
     @Override
     public void stop() {
         if (nettyChannel == null) {
-            throw new IllegalStateException("Must start ChannelServer before stopping it");
+            return;
         }
 
         nettyChannel.close().syncUninterruptibly();
+        nettyChannel = null;
     }
 }

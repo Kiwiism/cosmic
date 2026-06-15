@@ -10,6 +10,7 @@ Runtime counters are exposed through JMX under `cosmic:type=RuntimeMetrics`. Imp
 
 - packet count and slow packet handlers;
 - gameplay and maintenance scheduler queue depth;
+- active background, persistence, gameplay, and maintenance workers;
 - background and persistence queue depth;
 - rejected tasks;
 - database connection acquisition time;
@@ -44,3 +45,13 @@ persistence repositories are introduced and verified.
 
 TCP connection tests only validate socket acceptance. They do not represent logged-in players, movement,
 combat, scripts, drops, or persistence load.
+
+## R6-R9 follow-up
+
+The second hardening pass keeps the same public behavior while reducing lifecycle fragility:
+
+- executor pools lazily initialize if a task is submitted before the usual startup path;
+- timer JMX reads and purge operations no longer assume the gameplay scheduler was already started;
+- login and channel listeners can be stopped more than once without turning shutdown cleanup into an exception;
+- disconnect cleanup holds the current map reference while removing a character, avoiding a rare null map reread
+  after `removePlayer` mutates character state.

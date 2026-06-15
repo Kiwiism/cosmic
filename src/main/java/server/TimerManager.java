@@ -72,20 +72,20 @@ public class TimerManager implements TimerManagerMBean {
     public Runnable purge() {//Yay?
         return () -> {
             Server.getInstance().forceUpdateCurrentTime();
-            ses.purge();
+            gameplayScheduler().purge();
         };
     }
 
     public ScheduledFuture<?> register(Runnable r, long repeatTime, long delay) {
-        return ses.scheduleAtFixedRate(new TimedRunnable(r), delay, repeatTime, MILLISECONDS);
+        return gameplayScheduler().scheduleAtFixedRate(new TimedRunnable(r), delay, repeatTime, MILLISECONDS);
     }
 
     public ScheduledFuture<?> register(Runnable r, long repeatTime) {
-        return ses.scheduleAtFixedRate(new TimedRunnable(r), 0, repeatTime, MILLISECONDS);
+        return gameplayScheduler().scheduleAtFixedRate(new TimedRunnable(r), 0, repeatTime, MILLISECONDS);
     }
 
     public ScheduledFuture<?> schedule(Runnable r, long delay) {
-        return ses.schedule(new TimedRunnable(r), Math.max(0, delay), MILLISECONDS);
+        return gameplayScheduler().schedule(new TimedRunnable(r), Math.max(0, delay), MILLISECONDS);
     }
 
     public ScheduledFuture<?> registerMaintenance(Runnable r, long repeatTime, long delay) {
@@ -104,32 +104,37 @@ public class TimerManager implements TimerManagerMBean {
 
     @Override
     public long getActiveCount() {
-        return ses.getActiveCount();
+        return gameplayScheduler().getActiveCount();
     }
 
     @Override
     public long getCompletedTaskCount() {
-        return ses.getCompletedTaskCount();
+        return gameplayScheduler().getCompletedTaskCount();
     }
 
     @Override
     public int getQueuedTasks() {
-        return ses.getQueue().toArray().length;
+        return gameplayScheduler().getQueue().size();
     }
 
     @Override
     public long getTaskCount() {
-        return ses.getTaskCount();
+        return gameplayScheduler().getTaskCount();
     }
 
     @Override
     public boolean isShutdown() {
-        return ses.isShutdown();
+        return ses == null || ses.isShutdown();
     }
 
     @Override
     public boolean isTerminated() {
-        return ses.isTerminated();
+        return ses == null || ses.isTerminated();
+    }
+
+    private ScheduledThreadPoolExecutor gameplayScheduler() {
+        start();
+        return ses;
     }
 
 

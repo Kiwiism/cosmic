@@ -34,4 +34,12 @@ public interface RuntimeMetricsMBean {
     int getGameplaySchedulerQueueDepth();
 
     int getMaintenanceSchedulerQueueDepth();
+
+    int getBackgroundActiveCount();
+
+    int getPersistenceActiveCount();
+
+    int getGameplaySchedulerActiveCount();
+
+    int getMaintenanceSchedulerActiveCount();
 }
