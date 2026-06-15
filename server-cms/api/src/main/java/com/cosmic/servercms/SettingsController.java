@@ -18,11 +18,14 @@ public class SettingsController {
     private final JdbcTemplate jdbc;
     private final BridgeClient bridge;
     private final ObjectMapper mapper;
+    private final ConfigFallbackResolver fallbackResolver;
 
-    public SettingsController(JdbcTemplate jdbc, BridgeClient bridge, ObjectMapper mapper) {
+    public SettingsController(JdbcTemplate jdbc, BridgeClient bridge, ObjectMapper mapper,
+                              ConfigFallbackResolver fallbackResolver) {
         this.jdbc = jdbc;
         this.bridge = bridge;
         this.mapper = mapper;
+        this.fallbackResolver = fallbackResolver;
     }
 
     @GetMapping("/dashboard")
@@ -66,7 +69,7 @@ public class SettingsController {
         if (!compatibility.isBlank()) { sql.append(" AND c.compatibility=?"); params.add(compatibility); }
         if (!scopeType.isBlank()) { sql.append(" AND c.scope_type=?"); params.add(scopeType); }
         sql.append(" ORDER BY c.category,c.sort_order,c.display_name");
-        return jdbc.queryForList(sql.toString(), params.toArray());
+        return enrichFallbacks(jdbc.queryForList(sql.toString(), params.toArray()));
     }
 
     @GetMapping("/settings/categories")
@@ -105,6 +108,7 @@ public class SettingsController {
                 WHERE c.setting_key=? AND o.scope_type=c.scope_type AND o.scope_id=?
                 """, key, effectiveScopeId);
         result = new LinkedHashMap<>(result);
+        applyYamlFallback(result, effectiveScopeId);
         result.put("runtimeApplied", false);
         result.put("pendingRestart", true);
         return result;
@@ -144,6 +148,25 @@ public class SettingsController {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Setting not found");
         return rows.getFirst();
+    }
+
+    private List<Map<String, Object>> enrichFallbacks(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> enriched = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> mutable = new LinkedHashMap<>(row);
+            applyYamlFallback(mutable, Number.class.cast(mutable.get("scope_id")).intValue());
+            enriched.add(mutable);
+        }
+        return enriched;
+    }
+
+    private void applyYamlFallback(Map<String, Object> setting, int scopeId) {
+        fallbackResolver.resolve(setting, scopeId).ifPresent(value -> {
+            setting.put("default_value", value);
+            if (setting.get("override_value") == null) {
+                setting.put("effective_value", value);
+            }
+        });
     }
 
     private void validate(Map<String, Object> setting, String value) {
