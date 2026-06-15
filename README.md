@@ -1,5 +1,78 @@
-﻿# Cosmic
-Cosmic is a server emulator for Global MapleStory (GMS) version 83.
+﻿# Cosmic CMS
+Cosmic CMS is a fork of [P0nk/Cosmic](https://github.com/P0nk/Cosmic), a server emulator for Global MapleStory (GMS) version 83.
+
+This repository keeps the original Cosmic server setup guide below, but adds operational tooling around it:
+
+- **Database CMS**: a visual web interface for game database data such as mobs, items, maps, drops, shops, gachapon, accounts, characters, inventory, and storage.
+- **Server CMS**: a separate operations console for server-side configuration, command policy, world/rate settings, runtime diagnostics, and restart-applied overrides.
+- **Runtime hardening**: safer executor lifecycle, bounded background/persistence queues, runtime metrics, autosave backpressure, shutdown cleanup, and several static leak/consistency fixes.
+- **Command and staff tooling updates**: reorganized command access levels, CMS-visible command policy overrides, `@levelup`, AP/SP reset improvements, and removal of duplicate command registrations.
+
+The upstream Cosmic project remains the original source. This fork has been updated to make local administration, database editing, server configuration, and runtime diagnostics easier without directly editing the database or Java files for routine operations.
+
+## Fork-specific services
+
+This fork uses three MySQL schemas by default:
+
+- `cosmic`: original game database used by the server.
+- `cosmic_database_cms`: Database CMS-owned authentication, audit, catalog, draft, and queued-operation data.
+- `cosmic_server_cms`: Server CMS-owned settings, command policy, audit, and operations data.
+
+Both CMS APIs use Liquibase migrations. Their JDBC URLs include `createDatabaseIfNotExist=true`, so the CMS databases and tables are created on first startup when the configured MySQL user has `CREATE` permissions. Existing schemas are preserved and only unapplied migrations run on later startups.
+
+### Database CMS
+
+Database CMS is for **game database content and records**.
+
+- Web: `http://localhost:3000`
+- API: `http://localhost:8081`
+- Folder: `database-cms`
+- CMS database: `cosmic_database_cms`
+- Game database read/write target: `cosmic`
+
+Configure it by copying `database-cms/.env.example` to `database-cms/.env` and setting your local MySQL password. Start it with:
+
+```powershell
+.\database-cms\start-database-cms.cmd
+```
+
+Stop it with:
+
+```powershell
+.\database-cms\stop-database-cms.cmd
+```
+
+The first browser visit asks for an Owner account when no CMS users exist.
+
+Database CMS combines the MySQL game database with WZ XML catalog data from the local `wz` folder. It reads sources such as `String.wz`, `Character.wz`, `Item.wz`, `Mob.wz`, `Skill.wz`, and `Map.wz` to add names, descriptions, image paths, map regions, spawn information, skill levels, and item stat ranges around database rows.
+
+### Server CMS
+
+Server CMS is for **server-side configuration and operations**.
+
+- Web: `http://localhost:3001`
+- API: `http://localhost:8082`
+- Folder: `server-cms`
+- CMS database: `cosmic_server_cms`
+- Optional private live bridge: `http://127.0.0.1:8787`
+
+Configure it by copying `server-cms/.env.example` to `server-cms/.env` and setting your local MySQL password. Start it with:
+
+```powershell
+.\server-cms\start-server-cms.ps1
+```
+
+Stop it with:
+
+```powershell
+.\server-cms\stop-server-cms.ps1
+```
+
+Server CMS settings are desired state. Most server overrides apply on the next Cosmic restart, and the UI labels whether a setting needs no client/WZ edit, a WZ edit, a client edit, or both for the in-game display to match. If the Server CMS database is unavailable, or `USE_SERVER_CMS_OVERRIDES: false` is set in `config.yaml`, Cosmic falls back to the original `config.yaml` and Java-coded defaults.
+
+### Live bridge
+
+The optional Cosmic live bridge is disabled unless `COSMIC_BRIDGE_TOKEN` is set before starting the game server. It is intended for private local/VPS operations only. Without the bridge, CMS pages can still edit their own databases and queue or save restart-applied changes, but live server-only actions are unavailable.
 
 ## Introduction
 
@@ -28,7 +101,7 @@ Explicitly excluded from the scope of the project.
 ## Project setup
 
 ### Contribute
-You may contribute to the project in various ways, mainly through GitHub:
+The original Cosmic project accepts contributions through GitHub:
 * Providing improvements to the code through a [Pull Request](https://github.com/P0nk/Cosmic/pulls) from your own fork. 
 * Reporting a bug by creating an [Issue](https://github.com/P0nk/Cosmic/issues).
 * Providing information to existing issues or reviewing pull requests that others have made.
@@ -72,6 +145,15 @@ You will start by installing the database server and database client. Then you w
    2. "Create new" -> "Database" -> database name should be "cosmic" -> "OK"
 5. Done. The database is now ready. Once the Cosmic server starts, it will create tables and populate some of them with initial data.
 
+#### CMS database notes
+
+The original `cosmic` schema is still the game database. The two CMS schemas are separate:
+
+- `cosmic_database_cms` is used by Database CMS.
+- `cosmic_server_cms` is used by Server CMS.
+
+You normally do not need to create those two schemas manually. The CMS API startup creates them when they do not exist, as long as the configured MySQL user can create databases and tables.
+
 ### 2 - Server
 You will start by cloning the repository, then configure the database properties and lastly start the server.
 
@@ -83,8 +165,9 @@ You will start by cloning the repository, then configure the database properties
 
 1. Clone Cosmic into a new project. In IntelliJ, you would create a new project from version control.
 2. Open _config.yaml_. Find "DB_PASS" and set it to your database root user password.
-3. Start the server. The main method is located in `net.server.Server`.
-4. If you see "Cosmic is now online" in the console, it means the server is online and ready to serve traffic. Yay!
+3. Optional: set `USE_SERVER_CMS_OVERRIDES: false` if you want to ignore all Server CMS overrides and use only the original `config.yaml` and Java defaults.
+4. Start the server. The main method is located in `net.server.Server`.
+5. If you see "Cosmic is now online" in the console, it means the server is online and ready to serve traffic. Yay!
 
 Below, I list other ways of running the server which are completely optional.
 
