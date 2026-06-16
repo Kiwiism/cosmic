@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
+import java.util.List;
 
 public final class AgentRuntimeService {
     private static final Logger log = LoggerFactory.getLogger(AgentRuntimeService.class);
@@ -162,13 +163,7 @@ public final class AgentRuntimeService {
                 + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
                 + "\"durationMillis\":" + intent.durationMillis() + ","
                 + "\"scriptSource\":\"" + escapeJson(scriptSource) + "\","
-                + "\"perception\":{"
-                + "\"available\":" + perception.available() + ","
-                + "\"players\":" + perception.players() + ","
-                + "\"monsters\":" + perception.monsters() + ","
-                + "\"drops\":" + perception.drops() + ","
-                + "\"reactors\":" + perception.reactors()
-                + "}"
+                + "\"perception\":" + perceptionDetailsJson(perception)
                 + "}";
     }
 
@@ -186,14 +181,71 @@ public final class AgentRuntimeService {
                 + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
                 + "\"capability\":\"" + escapeJson(dispatchResult.capability().name()) + "\","
                 + "\"policyAllowed\":" + dispatchResult.policyAllowed() + ","
-                + "\"perception\":{"
+                + "\"perception\":" + perceptionDetailsJson(perception)
+                + "}";
+    }
+
+    private String perceptionDetailsJson(AgentPerceptionSnapshot perception) {
+        return "{"
                 + "\"available\":" + perception.available() + ","
+                + "\"world\":" + perception.world() + ","
+                + "\"channel\":" + perception.channel() + ","
+                + "\"mapId\":" + perception.mapId() + ","
+                + "\"position\":{\"x\":" + perception.x() + ",\"y\":" + perception.y() + "},"
+                + "\"counts\":{"
                 + "\"players\":" + perception.players() + ","
                 + "\"monsters\":" + perception.monsters() + ","
                 + "\"drops\":" + perception.drops() + ","
+                + "\"npcs\":" + perception.npcs() + ","
                 + "\"reactors\":" + perception.reactors()
-                + "}"
+                + "},"
+                + "\"nearby\":{"
+                + "\"players\":" + visibleObjectsJson(perception.nearbyPlayers()) + ","
+                + "\"monsters\":" + visibleObjectsJson(perception.nearbyMonsters()) + ","
+                + "\"drops\":" + visibleObjectsJson(perception.nearbyDrops()) + ","
+                + "\"npcs\":" + visibleObjectsJson(perception.nearbyNpcs()) + ","
+                + "\"reactors\":" + visibleObjectsJson(perception.nearbyReactors())
+                + "},"
+                + "\"message\":\"" + escapeJson(perception.message()) + "\""
                 + "}";
+    }
+
+    private String visibleObjectsJson(List<AgentPerceptionSnapshot.AgentVisibleObject> objects) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int i = 0; i < objects.size(); i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(visibleObjectJson(objects.get(i)));
+        }
+        return builder.append(']').toString();
+    }
+
+    private String visibleObjectJson(AgentPerceptionSnapshot.AgentVisibleObject object) {
+        return "{"
+                + "\"type\":\"" + escapeJson(object.type()) + "\","
+                + "\"objectId\":" + object.objectId() + ","
+                + "\"templateId\":" + nullableNumber(object.templateId()) + ","
+                + "\"name\":\"" + escapeJson(object.name()) + "\","
+                + "\"x\":" + object.x() + ","
+                + "\"y\":" + object.y() + ","
+                + "\"distanceSq\":" + object.distanceSq() + ","
+                + "\"hp\":" + nullableNumber(object.hp()) + ","
+                + "\"maxHp\":" + nullableNumber(object.maxHp()) + ","
+                + "\"level\":" + nullableNumber(object.level()) + ","
+                + "\"quantity\":" + nullableNumber(object.quantity()) + ","
+                + "\"meso\":" + nullableNumber(object.meso()) + ","
+                + "\"alive\":" + nullableBoolean(object.alive()) + ","
+                + "\"state\":" + nullableNumber(object.state())
+                + "}";
+    }
+
+    private String nullableNumber(Number value) {
+        return value == null ? "null" : value.toString();
+    }
+
+    private String nullableBoolean(Boolean value) {
+        return value == null ? "null" : value.toString();
     }
 
     private String escapeJson(String value) {

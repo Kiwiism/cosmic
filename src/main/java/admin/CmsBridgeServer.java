@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ShopFactory;
 import server.agent.AgentManagedCharacter;
+import server.agent.AgentPerceptionSnapshot;
 import server.agent.AgentPilotTickResult;
 import server.agent.AgentProfile;
 import server.agent.AgentRepository;
@@ -195,9 +196,10 @@ public final class CmsBridgeServer {
 
         AgentPilotTickResult result = module.pilotService().dryRunTick(managed.get());
         String json = """
-                {"action":"tick","profileId":%d,"intent":"%s","dispatchStatus":"%s","message":"%s","preparedCount":%d,"enteredCount":%d}
+                {"action":"tick","profileId":%d,"intent":"%s","dispatchStatus":"%s","message":"%s","preparedCount":%d,"enteredCount":%d,"perception":%s}
                 """.formatted(profile.id(), result.intent().type(), result.dispatchResult().status(),
-                json(result.message()), module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount()).trim();
+                json(result.message()), module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount(),
+                perceptionJson(result.perception())).trim();
         respond(exchange, 200, json);
     }
 
@@ -235,6 +237,66 @@ public final class CmsBridgeServer {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    private String perceptionJson(AgentPerceptionSnapshot perception) {
+        return "{"
+                + "\"available\":" + perception.available() + ","
+                + "\"world\":" + perception.world() + ","
+                + "\"channel\":" + perception.channel() + ","
+                + "\"mapId\":" + perception.mapId() + ","
+                + "\"position\":{\"x\":" + perception.x() + ",\"y\":" + perception.y() + "},"
+                + "\"counts\":{"
+                + "\"players\":" + perception.players() + ","
+                + "\"monsters\":" + perception.monsters() + ","
+                + "\"drops\":" + perception.drops() + ","
+                + "\"npcs\":" + perception.npcs() + ","
+                + "\"reactors\":" + perception.reactors()
+                + "},"
+                + "\"nearby\":{"
+                + "\"players\":" + visibleObjectsJson(perception.nearbyPlayers()) + ","
+                + "\"monsters\":" + visibleObjectsJson(perception.nearbyMonsters()) + ","
+                + "\"drops\":" + visibleObjectsJson(perception.nearbyDrops()) + ","
+                + "\"npcs\":" + visibleObjectsJson(perception.nearbyNpcs()) + ","
+                + "\"reactors\":" + visibleObjectsJson(perception.nearbyReactors())
+                + "}"
+                + "}";
+    }
+
+    private String visibleObjectsJson(Iterable<AgentPerceptionSnapshot.AgentVisibleObject> objects) {
+        StringBuilder builder = new StringBuilder("[");
+        boolean first = true;
+        for (AgentPerceptionSnapshot.AgentVisibleObject object : objects) {
+            if (!first) {
+                builder.append(',');
+            }
+            first = false;
+            builder.append("{")
+                    .append("\"type\":\"").append(json(object.type())).append("\",")
+                    .append("\"objectId\":").append(object.objectId()).append(',')
+                    .append("\"templateId\":").append(nullableNumber(object.templateId())).append(',')
+                    .append("\"name\":\"").append(json(object.name())).append("\",")
+                    .append("\"x\":").append(object.x()).append(',')
+                    .append("\"y\":").append(object.y()).append(',')
+                    .append("\"distanceSq\":").append(object.distanceSq()).append(',')
+                    .append("\"hp\":").append(nullableNumber(object.hp())).append(',')
+                    .append("\"maxHp\":").append(nullableNumber(object.maxHp())).append(',')
+                    .append("\"level\":").append(nullableNumber(object.level())).append(',')
+                    .append("\"quantity\":").append(nullableNumber(object.quantity())).append(',')
+                    .append("\"meso\":").append(nullableNumber(object.meso())).append(',')
+                    .append("\"alive\":").append(nullableBoolean(object.alive())).append(',')
+                    .append("\"state\":").append(nullableNumber(object.state()))
+                    .append("}");
+        }
+        return builder.append(']').toString();
+    }
+
+    private String nullableNumber(Number value) {
+        return value == null ? "null" : value.toString();
+    }
+
+    private String nullableBoolean(Boolean value) {
+        return value == null ? "null" : value.toString();
     }
 
     @FunctionalInterface
