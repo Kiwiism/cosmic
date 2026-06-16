@@ -33,6 +33,11 @@ public final class RuntimeModuleManager {
         if (started) {
             throw new IllegalStateException("Runtime modules must be registered before startup: " + module.name());
         }
+        for (RuntimeModule registeredModule : modules) {
+            if (registeredModule.name().equals(module.name())) {
+                return;
+            }
+        }
         modules.add(module);
     }
 

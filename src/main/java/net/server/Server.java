@@ -67,6 +67,7 @@ import net.server.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import server.agent.AgentRuntimeModule;
 import server.CashShop.CashItemFactory;
 import server.SkillbookInformationProvider;
 import server.ThreadManager;
@@ -870,6 +871,12 @@ public class Server {
         return rankSystem;
     }
 
+    private void registerRuntimeModules() {
+        if (YamlConfig.config.server.USE_AGENT_RUNTIME) {
+            RuntimeModuleManager.getInstance().register(new AgentRuntimeModule());
+        }
+    }
+
     public void init() {
         Instant beforeInit = Instant.now();
         log.info("Cosmic v{} starting up.", ServerConstants.VERSION);
@@ -886,6 +893,7 @@ public class Server {
         CommandPolicyOverrides.load();
 
         DatabaseMigrations.runDatabaseMigrations();
+        registerRuntimeModules();
         RuntimeModuleManager.getInstance().start(this);
 
         channelDependencies = registerChannelDependencies();

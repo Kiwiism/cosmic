@@ -185,6 +185,8 @@ controller validation.
 ## Design Rules
 
 - Agent runtime must be disabled by default until explicitly enabled.
+- `server.USE_AGENT_RUNTIME` and the Server CMS setting
+  `server.agent.runtimeEnabled` are the runtime gate.
 - No agent should be controlled by both a real client and runtime code.
 - Runtime failures should stop the affected agent, not the whole server.
 - Economy-changing actions must be logged.

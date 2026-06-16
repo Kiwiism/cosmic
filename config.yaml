@@ -214,6 +214,7 @@ server:
     AUTOSAVE_BATCH_SIZE: 25
     AUTOSAVE_CHARACTER_INTERVAL_MS: 3600000
     USE_DIRTY_AUTOSAVE: false            # Keep false until all server-originated mutations mark persistence dirty.
+    USE_AGENT_RUNTIME: false             # Disabled until Agent CMS/runtime work intentionally enables server-side agents.
 
     #Login Configuration
     WORLDS: 1                           #Initial number of worlds on the server.

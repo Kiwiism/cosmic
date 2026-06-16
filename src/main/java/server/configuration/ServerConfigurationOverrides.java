@@ -76,6 +76,7 @@ public final class ServerConfigurationOverrides {
         integer("server.persistence.autosaveBatchSize", value -> config.AUTOSAVE_BATCH_SIZE = value);
         longValue("server.persistence.autosaveCharacterIntervalMs", value -> config.AUTOSAVE_CHARACTER_INTERVAL_MS = value);
         bool("server.persistence.dirtyAutosave", value -> config.USE_DIRTY_AUTOSAVE = value);
+        bool("server.agent.runtimeEnabled", value -> config.USE_AGENT_RUNTIME = value);
         longValue("server.scheduler.rankingMs", value -> config.RANKING_INTERVAL = value);
         longValue("server.scheduler.purgeMs", value -> config.PURGING_INTERVAL = value);
         bool("server.feature.mts", value -> config.USE_MTS = value);
