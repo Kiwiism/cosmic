@@ -20,11 +20,14 @@ public class AgentController {
     private final JdbcTemplate cmsJdbc;
     private final JdbcTemplate gameJdbc;
     private final ObjectMapper mapper;
+    private final BridgeClient bridge;
 
-    public AgentController(JdbcTemplate cmsJdbc, @Qualifier("gameJdbc") JdbcTemplate gameJdbc, ObjectMapper mapper) {
+    public AgentController(JdbcTemplate cmsJdbc, @Qualifier("gameJdbc") JdbcTemplate gameJdbc, ObjectMapper mapper,
+                           BridgeClient bridge) {
         this.cmsJdbc = cmsJdbc;
         this.gameJdbc = gameJdbc;
         this.mapper = mapper;
+        this.bridge = bridge;
     }
 
     @GetMapping
@@ -167,6 +170,19 @@ public class AgentController {
                 WHERE agent_profile_id=?
                 ORDER BY id DESC LIMIT 100
                 """, id);
+    }
+
+    @PostMapping("/{id}/runtime/{action}")
+    Map<String, Object> runtimeAction(@PathVariable int id, @PathVariable String action, Principal principal) {
+        if (!List.of("prepare", "enter", "tick", "release").contains(action)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown agent runtime action");
+        }
+
+        Map<String, Object> before = agent(id);
+        Map<String, Object> result = bridge.agentAction(id, action);
+        audit(principal, "AGENT_RUNTIME_" + action.toUpperCase(), "agent:" + id, before, result,
+                "Manual agent runtime action through Server CMS");
+        return result;
     }
 
     private Map<String, Object> oneGame(String sql, Object... args) {

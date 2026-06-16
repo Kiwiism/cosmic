@@ -6,13 +6,20 @@ import net.server.Server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ShopFactory;
+import server.agent.AgentManagedCharacter;
+import server.agent.AgentPilotTickResult;
+import server.agent.AgentProfile;
+import server.agent.AgentRepository;
+import server.agent.AgentRuntimeModule;
 import server.life.MonsterInformationProvider;
+import server.runtime.RuntimeModuleManager;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -25,6 +32,7 @@ import java.util.concurrent.Executors;
 public final class CmsBridgeServer {
     private static final Logger log = LoggerFactory.getLogger(CmsBridgeServer.class);
     private final String token;
+    private final AgentRepository agentRepository = new AgentRepository();
     private HttpServer server;
     private ExecutorService executor;
 
@@ -49,6 +57,8 @@ public final class CmsBridgeServer {
                     exchange -> handle(exchange, "POST", this::reloadDrops));
             server.createContext("/internal/admin/cache/shops/reload",
                     exchange -> handle(exchange, "POST", this::reloadShops));
+            server.createContext("/internal/admin/agents/",
+                    exchange -> handle(exchange, "POST", this::agentAction));
             server.start();
             log.info("CMS bridge listening on {}:{}", host, port);
         } catch (IOException exception) {
@@ -115,12 +125,116 @@ public final class CmsBridgeServer {
         respond(exchange, 200, "{\"reloaded\":true,\"cache\":\"shops\"}");
     }
 
+    private void agentAction(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String prefix = "/internal/admin/agents/";
+        String[] parts = path.substring(prefix.length()).split("/");
+        if (parts.length != 2) {
+            respond(exchange, 404, "{\"error\":\"not_found\"}");
+            return;
+        }
+
+        int profileId;
+        try {
+            profileId = Integer.parseInt(parts[0]);
+        } catch (NumberFormatException exception) {
+            respond(exchange, 400, "{\"error\":\"invalid_agent_profile_id\"}");
+            return;
+        }
+
+        String action = parts[1];
+        Optional<AgentRuntimeModule> module = RuntimeModuleManager.getInstance().findModule(AgentRuntimeModule.class);
+        if (module.isEmpty()) {
+            respond(exchange, 409, "{\"error\":\"agent_runtime_unavailable\",\"message\":\"Agent runtime module is not registered\"}");
+            return;
+        }
+
+        try {
+            Optional<AgentProfile> profile = agentRepository.findById(profileId);
+            if (profile.isEmpty()) {
+                respond(exchange, 404, "{\"error\":\"agent_not_found\"}");
+                return;
+            }
+
+            switch (action) {
+                case "prepare" -> respond(exchange, 200, prepareAgent(module.get(), profile.get()));
+                case "enter" -> respond(exchange, 200, enterAgent(module.get(), profile.get()));
+                case "release" -> respond(exchange, 200, releaseAgent(module.get(), profile.get()));
+                case "tick" -> tickAgent(exchange, module.get(), profile.get());
+                default -> respond(exchange, 404, "{\"error\":\"unknown_agent_action\"}");
+            }
+        } catch (Exception exception) {
+            log.warn("Agent bridge action {} failed for profile {}", action, profileId, exception);
+            respond(exchange, 500, "{\"error\":\"agent_action_failed\",\"message\":\"" + json(exception.getMessage()) + "\"}");
+        }
+    }
+
+    private String prepareAgent(AgentRuntimeModule module, AgentProfile profile) throws Exception {
+        Optional<AgentManagedCharacter> managed = module.spawnCoordinator().prepare(profile);
+        return agentStatusJson("prepare", managed, module);
+    }
+
+    private String enterAgent(AgentRuntimeModule module, AgentProfile profile) throws Exception {
+        Optional<AgentManagedCharacter> managed = module.spawnCoordinator().enterWorld(profile);
+        return agentStatusJson("enter", managed, module);
+    }
+
+    private String releaseAgent(AgentRuntimeModule module, AgentProfile profile) {
+        module.spawnCoordinator().release(profile, "Released through Server CMS bridge");
+        return """
+                {"action":"release","released":true,"profileId":%d,"preparedCount":%d,"enteredCount":%d}
+                """.formatted(profile.id(), module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount()).trim();
+    }
+
+    private void tickAgent(HttpExchange exchange, AgentRuntimeModule module, AgentProfile profile) throws IOException, Exception {
+        Optional<AgentManagedCharacter> managed = module.spawnCoordinator().findEntered(profile.id());
+        if (managed.isEmpty()) {
+            respond(exchange, 409, "{\"error\":\"agent_not_entered\",\"message\":\"Agent must be entered before ticking\"}");
+            return;
+        }
+
+        AgentPilotTickResult result = module.pilotService().dryRunTick(managed.get());
+        String json = """
+                {"action":"tick","profileId":%d,"intent":"%s","dispatchStatus":"%s","message":"%s","preparedCount":%d,"enteredCount":%d}
+                """.formatted(profile.id(), result.intent().type(), result.dispatchResult().status(),
+                json(result.message()), module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount()).trim();
+        respond(exchange, 200, json);
+    }
+
+    private String agentStatusJson(String action, Optional<AgentManagedCharacter> managed, AgentRuntimeModule module) {
+        if (managed.isEmpty()) {
+            return """
+                    {"action":"%s","accepted":false,"preparedCount":%d,"enteredCount":%d}
+                    """.formatted(action, module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount()).trim();
+        }
+
+        AgentManagedCharacter agent = managed.get();
+        return """
+                {"action":"%s","accepted":true,"profileId":%d,"characterId":%d,"sessionId":%d,"entered":%s,"preparedCount":%d,"enteredCount":%d}
+                """.formatted(action, agent.profileId(), agent.characterId(), agent.session().id(), agent.enteredWorld(),
+                module.spawnCoordinator().preparedCount(), module.spawnCoordinator().enteredCount()).trim();
+    }
+
     private void respond(HttpExchange exchange, int status, String json) throws IOException {
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.sendResponseHeaders(status, body.length);
         exchange.getResponseBody().write(body);
+    }
+
+    private String json(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\b", "\\b")
+                .replace("\f", "\\f")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     @FunctionalInterface

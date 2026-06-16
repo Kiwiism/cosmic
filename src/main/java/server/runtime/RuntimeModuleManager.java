@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public final class RuntimeModuleManager {
@@ -24,6 +25,15 @@ public final class RuntimeModuleManager {
 
     public RuntimeEventBus eventBus() {
         return eventBus;
+    }
+
+    public <T extends RuntimeModule> Optional<T> findModule(Class<T> moduleType) {
+        for (RuntimeModule module : modules) {
+            if (moduleType.isInstance(module)) {
+                return Optional.of(moduleType.cast(module));
+            }
+        }
+        return Optional.empty();
     }
 
     public void register(RuntimeModule module) {

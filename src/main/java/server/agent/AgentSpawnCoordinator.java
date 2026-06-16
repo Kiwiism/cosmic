@@ -181,6 +181,10 @@ public final class AgentSpawnCoordinator {
         return List.copyOf(enteredCharacters.values());
     }
 
+    public Optional<AgentManagedCharacter> findEntered(int profileId) {
+        return Optional.ofNullable(enteredCharacters.get(profileId));
+    }
+
     private boolean leaveEnteredWorld(AgentManagedCharacter managed, String reason) {
         Character character = managed.character();
         try {

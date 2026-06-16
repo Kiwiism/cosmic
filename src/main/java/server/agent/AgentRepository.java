@@ -51,6 +51,25 @@ public final class AgentRepository {
         }
     }
 
+    public Optional<AgentProfile> findById(int profileId) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT id, character_id, ownership_type, owner_account_id, owner_character_id,
+                            enabled, display_name, default_mode, behavior_profile, personality_profile,
+                            script_name, llm_enabled, created_at, updated_at
+                     FROM agent_profiles
+                     WHERE id = ?
+                     """)) {
+            statement.setInt(1, profileId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(readProfile(result));
+            }
+        }
+    }
+
     public Optional<AgentCharacterLocation> findCharacterLocation(int characterId) throws SQLException {
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement("""

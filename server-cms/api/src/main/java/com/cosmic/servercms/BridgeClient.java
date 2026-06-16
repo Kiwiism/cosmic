@@ -26,4 +26,16 @@ public class BridgeClient {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> agentAction(int profileId, String action) {
+        try {
+            return client.post()
+                    .uri("/internal/admin/agents/{profileId}/{action}", profileId, action)
+                    .retrieve()
+                    .body(Map.class);
+        } catch (Exception exception) {
+            return Map.of("status", "OFFLINE", "detail", exception.getClass().getSimpleName());
+        }
+    }
+
 }
