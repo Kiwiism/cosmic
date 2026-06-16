@@ -52,6 +52,11 @@ future-facing verbs `SAY`, `ROAM`, `MOVE`, `MAP`, `PORTAL`, `ATTACK`, `GRIND`,
 audited, but blocked until their dedicated systems are implemented. It does not
 move, chat, attack, loot, trade, or call gameplay handlers yet.
 
+When `USE_AGENT_RUNTIME` is enabled, the runtime starts a maintenance scheduler
+that dry-run ticks already-entered agent characters every 5 seconds. The
+scheduler does not create sessions, enter characters, or spawn agents by itself;
+it only processes handles explicitly entered through `AgentSpawnCoordinator`.
+
 ## Observation And Social Tables
 
 ### `agent_memory_events`

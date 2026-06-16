@@ -10,6 +10,7 @@ import server.maps.MapleMap;
 
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -174,6 +175,10 @@ public final class AgentSpawnCoordinator {
 
     public int enteredCount() {
         return enteredCharacters.size();
+    }
+
+    public List<AgentManagedCharacter> enteredCharactersSnapshot() {
+        return List.copyOf(enteredCharacters.values());
     }
 
     private boolean leaveEnteredWorld(AgentManagedCharacter managed, String reason) {

@@ -26,6 +26,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
     private final AgentIntentPolicyService intentPolicyService;
     private final AgentIntentDispatcher intentDispatcher;
     private final AgentPilotService pilotService;
+    private final AgentTickScheduler tickScheduler;
 
     public AgentRuntimeModule() {
         this(new AgentRegistry(new AgentRepository()), new AgentRuntimeService());
@@ -43,6 +44,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
         this.intentPolicyService = new AgentIntentPolicyService(policyRepository);
         this.intentDispatcher = new AgentIntentDispatcher(runtimeService, intentPolicyService);
         this.pilotService = new AgentPilotService(perceptionService, scriptRunner, scriptRepository, runtimeService, intentDispatcher);
+        this.tickScheduler = new AgentTickScheduler(spawnCoordinator, pilotService);
     }
 
     @Override
@@ -53,11 +55,13 @@ public final class AgentRuntimeModule implements RuntimeModule {
     @Override
     public void start(RuntimeModuleContext context) throws Exception {
         registry.refreshEnabledProfiles();
+        tickScheduler.start();
         log.info("Agent runtime registry loaded {} enabled profiles", registry.enabledProfileCount());
     }
 
     @Override
     public void stop(RuntimeModuleContext context) {
+        tickScheduler.stop();
         spawnCoordinator.releaseAll("Agent runtime module stopping");
         log.info("Agent runtime stopped with {} cached profiles, {} prepared characters, and {} entered characters",
                 registry.enabledProfileCount(), spawnCoordinator.preparedCount(), spawnCoordinator.enteredCount());
@@ -97,5 +101,9 @@ public final class AgentRuntimeModule implements RuntimeModule {
 
     public AgentIntentPolicyService intentPolicyService() {
         return intentPolicyService;
+    }
+
+    public AgentTickScheduler tickScheduler() {
+        return tickScheduler;
     }
 }
