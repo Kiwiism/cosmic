@@ -55,6 +55,10 @@ public final class AgentControlShell {
         }
     }
 
+    public void forgetReservation(AgentProfile profile) {
+        reservedSessions.remove(profile.id());
+    }
+
     public int reservedSessionCount() {
         return reservedSessions.size();
     }

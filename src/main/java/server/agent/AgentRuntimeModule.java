@@ -18,6 +18,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
     private final AgentRegistry registry;
     private final AgentRuntimeService runtimeService;
     private final AgentControlShell controlShell;
+    private final AgentSpawnCoordinator spawnCoordinator;
     private final AgentPerceptionService perceptionService;
     private final AgentScriptRunner scriptRunner;
 
@@ -29,6 +30,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
         this.registry = registry;
         this.runtimeService = runtimeService;
         this.controlShell = new AgentControlShell(runtimeService);
+        this.spawnCoordinator = new AgentSpawnCoordinator(runtimeService, controlShell);
         this.perceptionService = new AgentPerceptionService();
         this.scriptRunner = new AgentScriptRunner();
     }
@@ -46,7 +48,9 @@ public final class AgentRuntimeModule implements RuntimeModule {
 
     @Override
     public void stop(RuntimeModuleContext context) {
-        log.info("Agent runtime stopped with {} cached profiles", registry.enabledProfileCount());
+        spawnCoordinator.releaseAll("Agent runtime module stopping");
+        log.info("Agent runtime stopped with {} cached profiles and {} prepared characters",
+                registry.enabledProfileCount(), spawnCoordinator.preparedCount());
     }
 
     public AgentRegistry registry() {
@@ -63,6 +67,10 @@ public final class AgentRuntimeModule implements RuntimeModule {
 
     public AgentPerceptionService perceptionService() {
         return perceptionService;
+    }
+
+    public AgentSpawnCoordinator spawnCoordinator() {
+        return spawnCoordinator;
     }
 
     public AgentScriptRunner scriptRunner() {

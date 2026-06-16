@@ -131,10 +131,17 @@ controller validation.
    - separate Server CMS database from game database access
 
 5. **Minimal runtime**
+   - prepare a character through the normal database load path
+   - reserve one runtime session per agent profile
+   - release prepared handles on module stop
    - load a normal character through an internal client
    - spawn/despawn safely
    - prevent duplicate real-client login
    - save state on shutdown/despawn
+
+   The first implementation prepares characters without adding them to map or
+   world player storage. Visible spawn is intentionally separated because the
+   current player-enter-map path expects a Netty-backed client packet sink.
 
 6. **Dedicated Agent CMS MVP**
    - roster

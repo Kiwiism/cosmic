@@ -57,6 +57,22 @@ public final class AgentRuntimeService {
         }
     }
 
+    public void logLifecycle(int profileId, long sessionId, Integer world, Integer channel, Integer mapId, String message) throws SQLException {
+        repository.logAction(new AgentActionLogEntry(
+                profileId,
+                sessionId,
+                "LIFECYCLE",
+                AgentActionStatus.OK,
+                world,
+                channel,
+                mapId,
+                null,
+                null,
+                message,
+                null
+        ));
+    }
+
     public void failSession(AgentRuntimeSession session, String reason) {
         try {
             repository.endSession(session.id(), AgentRuntimeState.FAILED, reason);
