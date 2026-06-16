@@ -51,6 +51,28 @@ public final class AgentRepository {
         }
     }
 
+    public Optional<AgentCharacterLocation> findCharacterLocation(int characterId) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT id, world, map, spawnpoint
+                     FROM characters
+                     WHERE id = ?
+                     """)) {
+            statement.setInt(1, characterId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new AgentCharacterLocation(
+                        result.getInt("id"),
+                        result.getInt("world"),
+                        result.getInt("map"),
+                        result.getInt("spawnpoint")
+                ));
+            }
+        }
+    }
+
     private AgentProfile readProfile(ResultSet result) throws SQLException {
         return new AgentProfile(
                 result.getInt("id"),

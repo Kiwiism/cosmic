@@ -116,6 +116,7 @@ controller validation.
    - enabled-profile registry
    - runtime module boundary
    - conservative control eligibility guard
+   - read-only spawn planning
    - runtime session lifecycle service
    - action logging boundary
    - no gameplay control yet

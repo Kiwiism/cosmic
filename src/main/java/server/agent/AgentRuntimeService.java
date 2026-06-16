@@ -10,18 +10,24 @@ public final class AgentRuntimeService {
 
     private final AgentRuntimeRepository repository;
     private final AgentControlGuard controlGuard;
+    private final AgentSpawnPlanner spawnPlanner;
 
     public AgentRuntimeService() {
-        this(new AgentRuntimeRepository(), new AgentControlGuard());
+        this(new AgentRuntimeRepository(), new AgentRepository(), new AgentControlGuard());
     }
 
-    AgentRuntimeService(AgentRuntimeRepository repository, AgentControlGuard controlGuard) {
+    AgentRuntimeService(AgentRuntimeRepository repository, AgentRepository agentRepository, AgentControlGuard controlGuard) {
         this.repository = repository;
         this.controlGuard = controlGuard;
+        this.spawnPlanner = new AgentSpawnPlanner(agentRepository, controlGuard);
     }
 
     public AgentControlDecision canControl(AgentProfile profile) {
         return controlGuard.canRuntimeControl(profile);
+    }
+
+    public AgentSpawnPlan planSpawn(AgentProfile profile) throws SQLException {
+        return spawnPlanner.plan(profile);
     }
 
     public AgentRuntimeSession startSession(AgentProfile profile, int world, int channel, int mapId) throws SQLException {
