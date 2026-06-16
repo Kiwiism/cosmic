@@ -1,0 +1,166 @@
+package server.agent;
+
+import tools.DatabaseConnection;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Optional;
+
+public final class AgentRuntimeRepository {
+    public AgentRuntimeSession startSession(AgentProfile profile, int world, int channel, int mapId) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO agent_runtime_sessions
+                     (agent_profile_id, character_id, world, channel, map_id, state, current_task)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                     """, Statement.RETURN_GENERATED_KEYS)) {
+            statement.setInt(1, profile.id());
+            statement.setInt(2, profile.characterId());
+            statement.setInt(3, world);
+            statement.setInt(4, channel);
+            statement.setInt(5, mapId);
+            statement.setString(6, AgentRuntimeState.LOADING.name());
+            statement.setString(7, "Starting agent runtime session");
+            statement.executeUpdate();
+
+            try (ResultSet generatedKeys = statement.getGeneratedKeys()) {
+                if (generatedKeys.next()) {
+                    long id = generatedKeys.getLong(1);
+                    return findSession(id).orElseThrow(() -> new SQLException("Created agent session was not found: " + id));
+                }
+            }
+            throw new SQLException("Agent runtime session insert returned no generated key");
+        }
+    }
+
+    public Optional<AgentRuntimeSession> findSession(long sessionId) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT id, agent_profile_id, character_id, world, channel, map_id, state,
+                            current_goal_id, current_task, started_at, last_tick_at, ended_at, stop_reason
+                     FROM agent_runtime_sessions
+                     WHERE id = ?
+                     """)) {
+            statement.setLong(1, sessionId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(readSession(result));
+            }
+        }
+    }
+
+    public void updateSessionState(long sessionId, AgentRuntimeState state, String currentTask) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE agent_runtime_sessions
+                     SET state = ?, current_task = ?, last_tick_at = CURRENT_TIMESTAMP
+                     WHERE id = ? AND ended_at IS NULL
+                     """)) {
+            statement.setString(1, state.name());
+            statement.setString(2, currentTask);
+            statement.setLong(3, sessionId);
+            statement.executeUpdate();
+        }
+    }
+
+    public void heartbeat(long sessionId, String currentTask) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE agent_runtime_sessions
+                     SET current_task = ?, last_tick_at = CURRENT_TIMESTAMP
+                     WHERE id = ? AND ended_at IS NULL
+                     """)) {
+            statement.setString(1, currentTask);
+            statement.setLong(2, sessionId);
+            statement.executeUpdate();
+        }
+    }
+
+    public void endSession(long sessionId, AgentRuntimeState state, String stopReason) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE agent_runtime_sessions
+                     SET state = ?, stop_reason = ?, ended_at = CURRENT_TIMESTAMP, last_tick_at = CURRENT_TIMESTAMP
+                     WHERE id = ? AND ended_at IS NULL
+                     """)) {
+            statement.setString(1, state.name());
+            statement.setString(2, stopReason);
+            statement.setLong(3, sessionId);
+            statement.executeUpdate();
+        }
+    }
+
+    public void logAction(AgentActionLogEntry entry) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO agent_action_logs
+                     (agent_profile_id, runtime_session_id, action_type, status, world, channel, map_id,
+                      target_type, target_id, message, details_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     """)) {
+            statement.setInt(1, entry.agentProfileId());
+            setNullableLong(statement, 2, entry.runtimeSessionId());
+            statement.setString(3, entry.actionType());
+            statement.setString(4, entry.status().name());
+            setNullableInt(statement, 5, entry.world());
+            setNullableInt(statement, 6, entry.channel());
+            setNullableInt(statement, 7, entry.mapId());
+            statement.setString(8, entry.targetType());
+            setNullableLong(statement, 9, entry.targetId());
+            statement.setString(10, entry.message());
+            statement.setString(11, entry.detailsJson());
+            statement.executeUpdate();
+        }
+    }
+
+    private AgentRuntimeSession readSession(ResultSet result) throws SQLException {
+        return new AgentRuntimeSession(
+                result.getLong("id"),
+                result.getInt("agent_profile_id"),
+                result.getInt("character_id"),
+                result.getInt("world"),
+                result.getInt("channel"),
+                result.getInt("map_id"),
+                AgentRuntimeState.valueOf(result.getString("state")),
+                nullableLong(result, "current_goal_id"),
+                result.getString("current_task"),
+                nullableInstant(result, "started_at"),
+                nullableInstant(result, "last_tick_at"),
+                nullableInstant(result, "ended_at"),
+                result.getString("stop_reason")
+        );
+    }
+
+    private Long nullableLong(ResultSet result, String column) throws SQLException {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
+    }
+
+    private Instant nullableInstant(ResultSet result, String column) throws SQLException {
+        Timestamp timestamp = result.getTimestamp(column);
+        return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    private void setNullableInt(PreparedStatement statement, int index, Integer value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, java.sql.Types.INTEGER);
+        } else {
+            statement.setInt(index, value);
+        }
+    }
+
+    private void setNullableLong(PreparedStatement statement, int index, Long value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, java.sql.Types.BIGINT);
+        } else {
+            statement.setLong(index, value);
+        }
+    }
+}

@@ -16,13 +16,15 @@ public final class AgentRuntimeModule implements RuntimeModule {
     private static final Logger log = LoggerFactory.getLogger(AgentRuntimeModule.class);
 
     private final AgentRegistry registry;
+    private final AgentRuntimeService runtimeService;
 
     public AgentRuntimeModule() {
-        this(new AgentRegistry(new AgentRepository()));
+        this(new AgentRegistry(new AgentRepository()), new AgentRuntimeService());
     }
 
-    AgentRuntimeModule(AgentRegistry registry) {
+    AgentRuntimeModule(AgentRegistry registry, AgentRuntimeService runtimeService) {
         this.registry = registry;
+        this.runtimeService = runtimeService;
     }
 
     @Override
@@ -43,5 +45,9 @@ public final class AgentRuntimeModule implements RuntimeModule {
 
     public AgentRegistry registry() {
         return registry;
+    }
+
+    public AgentRuntimeService runtimeService() {
+        return runtimeService;
     }
 }

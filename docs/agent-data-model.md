@@ -68,6 +68,8 @@ Generic action history for runtime debugging and CMS inspection.
 
 Actions should include movement, attack decisions, script failures, policy
 denials, portal attempts, NPC interactions, and other runtime decisions.
+The initial runtime service exposes lifecycle/session logging first so future
+controllers do not scatter direct SQL writes through gameplay code.
 
 ### `agent_economy_ledger`
 

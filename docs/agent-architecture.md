@@ -115,6 +115,8 @@ controller validation.
    - profile repository
    - enabled-profile registry
    - runtime module boundary
+   - runtime session lifecycle service
+   - action logging boundary
    - no gameplay control yet
 
 4. **Minimal runtime**
