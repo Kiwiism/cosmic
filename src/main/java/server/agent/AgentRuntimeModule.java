@@ -49,8 +49,8 @@ public final class AgentRuntimeModule implements RuntimeModule {
     @Override
     public void stop(RuntimeModuleContext context) {
         spawnCoordinator.releaseAll("Agent runtime module stopping");
-        log.info("Agent runtime stopped with {} cached profiles and {} prepared characters",
-                registry.enabledProfileCount(), spawnCoordinator.preparedCount());
+        log.info("Agent runtime stopped with {} cached profiles, {} prepared characters, and {} entered characters",
+                registry.enabledProfileCount(), spawnCoordinator.preparedCount(), spawnCoordinator.enteredCount());
     }
 
     public AgentRegistry registry() {
