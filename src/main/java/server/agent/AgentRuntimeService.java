@@ -5,9 +5,13 @@ import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class AgentRuntimeService {
     private static final Logger log = LoggerFactory.getLogger(AgentRuntimeService.class);
+    private static final Pattern LOCATED_TARGET_ID_PATTERN = Pattern.compile("\"locatedTarget\"\\s*:\\s*\\{[^}]*\"characterId\"\\s*:\\s*(\\d+)");
+    private static final Pattern LOCATED_TARGET_NAME_PATTERN = Pattern.compile("\"locatedTarget\"\\s*:\\s*\\{[^}]*\"name\"\\s*:\\s*\"([^\"]*)\"");
 
     private final AgentRuntimeRepository repository;
     private final AgentControlGuard controlGuard;
@@ -147,6 +151,7 @@ public final class AgentRuntimeService {
                         + "}"
         ));
         rememberNavigationRoute(managed, intent, dispatchResult, perception);
+        rememberCompanionRelationship(managed, intent, dispatchResult, perception);
     }
 
     public void failSession(AgentRuntimeSession session, String reason) {
@@ -353,6 +358,64 @@ public final class AgentRuntimeService {
                         + "\"route\":" + dispatchResult.detailsJson()
                         + "}"
         ));
+    }
+
+    private void rememberCompanionRelationship(
+            AgentManagedCharacter managed,
+            AgentIntent intent,
+            AgentIntentDispatchResult dispatchResult,
+            AgentPerceptionSnapshot perception
+    ) throws SQLException {
+        if (intent.type() != AgentIntentType.FOLLOW_CHARACTER || dispatchResult.detailsJson() == null) {
+            return;
+        }
+
+        Integer relatedCharacterId = extractLocatedTargetId(dispatchResult.detailsJson());
+        if (relatedCharacterId == null) {
+            return;
+        }
+
+        String targetName = extractLocatedTargetName(dispatchResult.detailsJson());
+        repository.upsertCompanionRelationship(
+                managed.profileId(),
+                relatedCharacterId,
+                dispatchResult.status() == AgentActionStatus.OK ? 10 : 5,
+                "Follow dry-run target " + (targetName == null ? relatedCharacterId : targetName)
+                        + " at map " + perception.mapId()
+        );
+        repository.remember(new AgentMemoryEvent(
+                managed.profileId(),
+                "COMPANION_TARGET",
+                dispatchResult.status() == AgentActionStatus.OK ? 4 : 3,
+                relatedCharacterId,
+                null,
+                perception.mapId(),
+                "Companion target " + (targetName == null ? relatedCharacterId : targetName)
+                        + " located during follow dry-run",
+                "{"
+                        + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
+                        + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
+                        + "\"dispatchStatus\":\"" + escapeJson(dispatchResult.status().name()) + "\","
+                        + "\"followDetails\":" + nullableJsonObject(dispatchResult.detailsJson())
+                        + "}"
+        ));
+    }
+
+    private Integer extractLocatedTargetId(String detailsJson) {
+        Matcher matcher = LOCATED_TARGET_ID_PATTERN.matcher(detailsJson);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String extractLocatedTargetName(String detailsJson) {
+        Matcher matcher = LOCATED_TARGET_NAME_PATTERN.matcher(detailsJson);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private String perceptionDetailsJson(AgentPerceptionSnapshot perception) {

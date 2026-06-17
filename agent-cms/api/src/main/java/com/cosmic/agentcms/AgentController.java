@@ -296,6 +296,7 @@ public class AgentController {
                 WHERE agent_profile_id=?
                 ORDER BY id DESC LIMIT 1
                 """, id);
+        maybeUpsertCompanionRelationship(id, created, principal);
         audit(principal, "AGENT_GOAL_CREATE", "agent:" + id + ":goal:" + created.get("id"), null, created,
                 "Created agent goal through Agent CMS");
         return created;
@@ -515,6 +516,42 @@ public class AgentController {
             case "1", "true", "yes", "y", "enabled", "on" -> true;
             default -> false;
         };
+    }
+
+    private void maybeUpsertCompanionRelationship(int agentProfileId, Map<String, Object> goal, Principal principal) {
+        String goalType = String.valueOf(goal.getOrDefault("goal_type", "")).trim().toUpperCase();
+        if (!List.of("FOLLOW", "FOLLOW_CHARACTER", "COMPANION", "HANG_AROUND").contains(goalType)) {
+            return;
+        }
+
+        Integer relatedCharacterId = resolveCharacterId(String.valueOf(goal.getOrDefault("target_ref", "")));
+        if (relatedCharacterId == null) {
+            return;
+        }
+
+        gameJdbc.update("""
+                INSERT INTO agent_relationships(agent_profile_id, related_character_id, relationship_type,
+                                                trust_score, affinity_score, notes)
+                VALUES (?, ?, 'COMPANION', 0, 5, ?)
+                ON DUPLICATE KEY UPDATE
+                    relationship_type = 'COMPANION',
+                    affinity_score = GREATEST(affinity_score, 5),
+                    notes = VALUES(notes)
+                """, agentProfileId, relatedCharacterId, "Assigned follow goal through Agent CMS by " + principal.getName());
+    }
+
+    private Integer resolveCharacterId(String target) {
+        if (target == null || target.isBlank()) {
+            return null;
+        }
+        String trimmed = target.trim();
+        List<Integer> rows;
+        try {
+            rows = gameJdbc.queryForList("SELECT id FROM characters WHERE id=? LIMIT 1", Integer.class, Integer.parseInt(trimmed));
+        } catch (NumberFormatException ignored) {
+            rows = gameJdbc.queryForList("SELECT id FROM characters WHERE name=? LIMIT 1", Integer.class, trimmed);
+        }
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private void audit(Principal principal, String action, String key, Object before, Object after, String reason) {

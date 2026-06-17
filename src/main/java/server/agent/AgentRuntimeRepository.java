@@ -140,6 +140,30 @@ public final class AgentRuntimeRepository {
         }
     }
 
+    public void upsertCompanionRelationship(
+            int agentProfileId,
+            int relatedCharacterId,
+            int affinityFloor,
+            String notes
+    ) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO agent_relationships(agent_profile_id, related_character_id, relationship_type,
+                                                     trust_score, affinity_score, notes)
+                     VALUES (?, ?, 'COMPANION', 0, ?, ?)
+                     ON DUPLICATE KEY UPDATE
+                         relationship_type = 'COMPANION',
+                         affinity_score = GREATEST(affinity_score, VALUES(affinity_score)),
+                         notes = VALUES(notes)
+                     """)) {
+            statement.setInt(1, agentProfileId);
+            statement.setInt(2, relatedCharacterId);
+            statement.setInt(3, affinityFloor);
+            statement.setString(4, notes);
+            statement.executeUpdate();
+        }
+    }
+
     private AgentRuntimeSession readSession(ResultSet result) throws SQLException {
         return new AgentRuntimeSession(
                 result.getLong("id"),

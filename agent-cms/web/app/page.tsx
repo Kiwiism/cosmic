@@ -115,10 +115,10 @@ function Runtime(){
 function Social(){
  const [q,setQ]=useState(""),[relationships,setRelationships]=useState<any[]>([]),[chat,setChat]=useState<any[]>([]),[error,setError]=useState("");
  useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/social/relationships?q=${encodeURIComponent(q)}`).then(setRelationships).catch(x=>setError((x as Error).message));api<any[]>(`/api/agents/social/chat?q=${encodeURIComponent(q)}`).then(setChat).catch(x=>setError((x as Error).message))},160);return()=>clearTimeout(timer)},[q]);
- return <><article className="panel intro"><Title title="Social memory" sub="Relationships and chat logs, ready for future party/friend/companion behavior."/></article>
+ return <><article className="panel intro"><Title title="Social memory" sub="Companion targets, relationships and chat logs. FOLLOW_CHARACTER goals can seed companion relationships automatically."/></article>
   <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, player, relationship, or message"/>
   {error&&<div className="error">{error}</div>}
-  <div className="agent-detail"><section className="panel"><Title title="Relationships" sub={`${relationships.length} relationship records.`}/>
+  <div className="agent-detail"><section className="panel"><Title title="Relationships" sub={`${relationships.length} relationship records. COMPANION means the agent has been assigned or observed following that character.`}/>
    <div className="ledger-list">{relationships.map(row=><article className="ledger-card social-card" key={row.id}>
     <div><strong>{row.display_name||row.agent_character_name} {"->"} {row.related_character_name}</strong><small>{row.related_account_name} | {row.relationship_type}</small></div>
     <div className="ledger-grid"><Tile label="Trust" value={row.trust_score}/><Tile label="Affinity" value={row.affinity_score}/><Tile label="Updated" value={row.updated_at}/><Tile label="Notes" value={row.notes||"none"}/></div>
