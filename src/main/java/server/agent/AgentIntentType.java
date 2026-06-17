@@ -18,5 +18,6 @@ public enum AgentIntentType {
     PARTY,
     USE_ITEM,
     EQUIP,
+    SKILL,
     UNKNOWN
 }

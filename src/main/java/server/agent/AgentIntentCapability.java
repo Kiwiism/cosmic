@@ -11,6 +11,7 @@ public enum AgentIntentCapability {
     TRADE("intent.trade.enabled", false),
     PARTY("intent.party.enabled", false),
     INVENTORY("intent.inventory.enabled", false),
+    SKILL("intent.skill.enabled", false),
     SCRIPT("intent.script.enabled", false);
 
     private final String policyKey;
@@ -41,6 +42,7 @@ public enum AgentIntentCapability {
             case TRADE -> TRADE;
             case PARTY -> PARTY;
             case USE_ITEM, EQUIP -> INVENTORY;
+            case SKILL -> SKILL;
             case UNKNOWN -> SCRIPT;
         };
     }

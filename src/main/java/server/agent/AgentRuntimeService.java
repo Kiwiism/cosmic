@@ -23,6 +23,7 @@ public final class AgentRuntimeService {
     private static final Pattern NPC_STATE_PATTERN = Pattern.compile("\"npcState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern SHOP_STATE_PATTERN = Pattern.compile("\"shopState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern INVENTORY_STATE_PATTERN = Pattern.compile("\"inventoryState\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern SKILL_STATE_PATTERN = Pattern.compile("\"skillState\"\\s*:\\s*\"([^\"]*)\"");
 
     private final AgentRuntimeRepository repository;
     private final AgentControlGuard controlGuard;
@@ -178,6 +179,7 @@ public final class AgentRuntimeService {
         rememberNpcPreview(managed, intent, dispatchResult, perception);
         rememberShopPreview(managed, intent, dispatchResult, perception);
         rememberInventoryPreview(managed, intent, dispatchResult, perception);
+        rememberSkillPreview(managed, intent, dispatchResult, perception);
     }
 
     public void failSession(AgentRuntimeSession session, String reason) {
@@ -210,6 +212,7 @@ public final class AgentRuntimeService {
             case NPC -> "NPC";
             case PARTY -> "SOCIAL";
             case USE_ITEM, EQUIP -> "INVENTORY";
+            case SKILL -> "SKILL";
             case IDLE, WAIT -> "SELF";
             case UNKNOWN -> "SCRIPT";
         };
@@ -662,6 +665,35 @@ public final class AgentRuntimeService {
                         + "\"dispatchStatus\":\"" + escapeJson(dispatchResult.status().name()) + "\","
                         + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
                         + "\"inventory\":" + nullableJsonObject(dispatchResult.detailsJson())
+                        + "}"
+        ));
+    }
+
+    private void rememberSkillPreview(
+            AgentManagedCharacter managed,
+            AgentIntent intent,
+            AgentIntentDispatchResult dispatchResult,
+            AgentPerceptionSnapshot perception
+    ) throws SQLException {
+        if (dispatchResult.capability() != AgentIntentCapability.SKILL || dispatchResult.detailsJson() == null) {
+            return;
+        }
+
+        String skillState = extractString(SKILL_STATE_PATTERN, dispatchResult.detailsJson());
+        repository.remember(new AgentMemoryEvent(
+                managed.profileId(),
+                "SKILL_PREVIEW",
+                dispatchResult.status() == AgentActionStatus.OK ? 3 : 2,
+                null,
+                null,
+                perception.mapId(),
+                "Skill " + intent.type() + " state: " + (skillState == null ? dispatchResult.status() : skillState),
+                "{"
+                        + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
+                        + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
+                        + "\"dispatchStatus\":\"" + escapeJson(dispatchResult.status().name()) + "\","
+                        + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
+                        + "\"skill\":" + nullableJsonObject(dispatchResult.detailsJson())
                         + "}"
         ));
     }

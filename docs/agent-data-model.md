@@ -89,8 +89,11 @@ range; it does not open the shop or buy/sell items yet. `USEITEM` and `EQUIP`
 can inspect the agent's current inventory, resolve an item by id/name or simple
 aliases such as `hp`, `mp`, and `potion`, then record `ITEM_READY`,
 `EQUIP_READY`, `NO_ITEM`, or `NO_EQUIP`; they do not consume items or equip gear
-yet. The future-facing verbs `TRADE` and `PARTY` are parsed and audited, but
-blocked until their dedicated systems are implemented.
+yet. `SKILL` and `CAST` can inspect learned skills, resolve a skill by id or
+generic aliases such as `attack`, `buff`, `active`, and `passive`, then record
+`SKILL_READY` or `NO_SKILL`; they do not cast skills yet. The future-facing
+verbs `TRADE` and `PARTY` are parsed and audited, but blocked until their
+dedicated systems are implemented.
 
 When an agent has no active goal, script fallback advances through parsed script
 lines using the current runtime session's previous `INTENT_PLAN` count as the
@@ -215,6 +218,7 @@ The dispatcher reads capability toggles from this table before execution:
 - `intent.trade.enabled`
 - `intent.party.enabled`
 - `intent.inventory.enabled`
+- `intent.skill.enabled`
 - `intent.script.enabled`
 
 All gameplay-facing capabilities default to disabled. Enabling a policy row only

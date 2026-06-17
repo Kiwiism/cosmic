@@ -46,4 +46,18 @@ class AgentScriptRunnerTest {
         assertEquals(50, intents.size());
         assertEquals(AgentIntentType.IDLE, intents.get(0).type());
     }
+
+    @Test
+    void parsesSkillReadinessAliases() {
+        List<AgentIntent> intents = runner.parse("""
+                SKILL attack
+                CAST 1001005
+                """);
+
+        assertEquals(2, intents.size());
+        assertEquals(AgentIntentType.SKILL, intents.get(0).type());
+        assertEquals("attack", intents.get(0).argument());
+        assertEquals(AgentIntentType.SKILL, intents.get(1).type());
+        assertEquals("1001005", intents.get(1).argument());
+    }
 }

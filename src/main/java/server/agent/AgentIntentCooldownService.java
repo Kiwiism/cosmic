@@ -15,6 +15,7 @@ public final class AgentIntentCooldownService {
     private static final long DEFAULT_TRADE_COOLDOWN_MILLIS = 5_000L;
     private static final long DEFAULT_PARTY_COOLDOWN_MILLIS = 3_000L;
     private static final long DEFAULT_INVENTORY_COOLDOWN_MILLIS = 1_500L;
+    private static final long DEFAULT_SKILL_COOLDOWN_MILLIS = 1_000L;
     private static final long DEFAULT_SCRIPT_COOLDOWN_MILLIS = 1_000L;
 
     private final AgentPolicyRepository policyRepository;
@@ -64,6 +65,7 @@ public final class AgentIntentCooldownService {
             case TRADE -> DEFAULT_TRADE_COOLDOWN_MILLIS;
             case PARTY -> DEFAULT_PARTY_COOLDOWN_MILLIS;
             case INVENTORY -> DEFAULT_INVENTORY_COOLDOWN_MILLIS;
+            case SKILL -> DEFAULT_SKILL_COOLDOWN_MILLIS;
             case SCRIPT -> DEFAULT_SCRIPT_COOLDOWN_MILLIS;
         };
     }

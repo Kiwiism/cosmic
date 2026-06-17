@@ -73,6 +73,10 @@ public record AgentIntent(
         return new AgentIntent(AgentIntentType.EQUIP, itemIdOrName, 0);
     }
 
+    public static AgentIntent skill(String skillIdOrAlias) {
+        return new AgentIntent(AgentIntentType.SKILL, blankToNull(skillIdOrAlias), 0);
+    }
+
     public static AgentIntent unknown(String line) {
         return new AgentIntent(AgentIntentType.UNKNOWN, line, 0);
     }

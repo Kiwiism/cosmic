@@ -25,6 +25,7 @@ import java.util.Locale;
  * PARTY [command]
  * USEITEM [itemIdOrName]
  * EQUIP [itemIdOrName]
+ * SKILL [skillIdOrAlias]
  *
  * Convenience syntax:
  * REPEAT 3 SAY hello
@@ -112,6 +113,7 @@ public final class AgentScriptRunner {
             case "PARTY" -> AgentIntent.party(argument);
             case "USEITEM", "USE_ITEM", "CONSUME" -> AgentIntent.useItem(argument);
             case "EQUIP" -> AgentIntent.equip(argument);
+            case "SKILL", "CAST", "USESKILL", "USE_SKILL" -> AgentIntent.skill(argument);
             default -> AgentIntent.unknown(originalLine);
         };
     }
