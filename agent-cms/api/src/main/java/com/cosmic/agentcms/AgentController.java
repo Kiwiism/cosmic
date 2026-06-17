@@ -417,6 +417,71 @@ public class AgentController {
         return result;
     }
 
+    @GetMapping("/runtime/sessions")
+    List<Map<String, Object>> runtimeSessions(@RequestParam(defaultValue = "") String q) {
+        return gameJdbc.queryForList("""
+                SELECT s.*, p.display_name, c.name character_name, a.name account_name
+                FROM agent_runtime_sessions s
+                JOIN agent_profiles p ON p.id = s.agent_profile_id
+                JOIN characters c ON c.id = s.character_id
+                JOIN accounts a ON a.id = c.accountid
+                WHERE c.name LIKE ? OR a.name LIKE ? OR p.display_name LIKE ?
+                   OR s.state LIKE ? OR s.current_task LIKE ?
+                ORDER BY s.id DESC
+                LIMIT 200
+                """, like(q), like(q), like(q), like(q), like(q));
+    }
+
+    @GetMapping("/social/relationships")
+    List<Map<String, Object>> relationships(@RequestParam(defaultValue = "") String q) {
+        return gameJdbc.queryForList("""
+                SELECT r.*, p.display_name, c.name agent_character_name,
+                       rc.name related_character_name, ra.name related_account_name
+                FROM agent_relationships r
+                JOIN agent_profiles p ON p.id = r.agent_profile_id
+                JOIN characters c ON c.id = p.character_id
+                JOIN characters rc ON rc.id = r.related_character_id
+                JOIN accounts ra ON ra.id = rc.accountid
+                WHERE p.display_name LIKE ? OR c.name LIKE ? OR rc.name LIKE ?
+                   OR ra.name LIKE ? OR r.relationship_type LIKE ? OR r.notes LIKE ?
+                ORDER BY r.updated_at DESC
+                LIMIT 200
+                """, like(q), like(q), like(q), like(q), like(q), like(q));
+    }
+
+    @GetMapping("/social/chat")
+    List<Map<String, Object>> chatLogs(@RequestParam(defaultValue = "") String q) {
+        return gameJdbc.queryForList("""
+                SELECT l.*, p.display_name, c.name agent_character_name,
+                       sender.name sender_name, recipient.name recipient_name
+                FROM agent_chat_logs l
+                JOIN agent_profiles p ON p.id = l.agent_profile_id
+                JOIN characters c ON c.id = p.character_id
+                LEFT JOIN characters sender ON sender.id = l.sender_character_id
+                LEFT JOIN characters recipient ON recipient.id = l.recipient_character_id
+                WHERE p.display_name LIKE ? OR c.name LIKE ? OR l.channel_type LIKE ?
+                   OR l.direction LIKE ? OR l.message LIKE ?
+                ORDER BY l.id DESC
+                LIMIT 200
+                """, like(q), like(q), like(q), like(q), like(q));
+    }
+
+    @GetMapping("/economy/ledger")
+    List<Map<String, Object>> economyLedger(@RequestParam(defaultValue = "") String q) {
+        return gameJdbc.queryForList("""
+                SELECT e.*, p.display_name, c.name agent_character_name, counterparty.name counterparty_name
+                FROM agent_economy_ledger e
+                JOIN agent_profiles p ON p.id = e.agent_profile_id
+                JOIN characters c ON c.id = p.character_id
+                LEFT JOIN characters counterparty ON counterparty.id = e.counterparty_character_id
+                WHERE p.display_name LIKE ? OR c.name LIKE ? OR e.entry_type LIKE ?
+                   OR e.source_type LIKE ? OR CAST(e.item_id AS CHAR) LIKE ?
+                   OR counterparty.name LIKE ?
+                ORDER BY e.id DESC
+                LIMIT 200
+                """, like(q), like(q), like(q), like(q), like(q), like(q));
+    }
+
     private Map<String, Object> oneGame(String sql, Object... args) {
         List<Map<String, Object>> rows = gameJdbc.queryForList(sql, args);
         if (rows.isEmpty()) {

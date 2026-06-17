@@ -1,16 +1,22 @@
 "use client";
-import {Activity,Network} from "lucide-react";
+import {Activity,Coins,Network,RadioTower,UsersRound} from "lucide-react";
 import {useEffect,useState} from "react";
 import {CmsAuth,CmsConnectionError} from "../components/auth/CmsAuth";
 import {CmsNavItem,CmsShell} from "../components/layout/CmsShell";
 import {PageToolbar} from "../components/ui/PageToolbar";
 import {api} from "../lib/api";
 
-type View="agents";
-const nav:readonly CmsNavItem<View>[]=[{key:"agents",label:"Agents",icon:Network}];
+type View="agents"|"runtime"|"social"|"economy";
+const nav:readonly CmsNavItem<View>[]=[
+ {key:"agents",label:"Agents",icon:Network},
+ {key:"runtime",label:"Runtime",icon:RadioTower},
+ {key:"social",label:"Social",icon:UsersRound},
+ {key:"economy",label:"Economy",icon:Coins}
+];
 
 export default function App(){
  const [auth,setAuth]=useState<boolean|null>(null),[setup,setSetup]=useState(false),[startupError,setStartupError]=useState("");
+ const [view,setView]=useState<View>("agents");
  useEffect(()=>{api("/api/auth/me").then(()=>setAuth(true)).catch(async()=>{
   try{const status=await api<{required:boolean}>("/api/setup/status");setSetup(status.required);setAuth(false)}
   catch{setStartupError("The Agent CMS API is offline or its database credentials are not configured.");setAuth(false)}
@@ -18,10 +24,10 @@ export default function App(){
  if(auth===null)return <div className="splash">Preparing Cosmic Agent CMS...</div>;
  if(startupError)return <CmsConnectionError mark="AC" productName="Agent CMS" message={startupError}/>;
  if(!auth)return <CmsAuth mark="AC" productName="Agent CMS" secureLabel="AGENT OPERATIONS" setup={setup} onReady={()=>setAuth(true)}/>;
- return <CmsShell activeView="agents" brandMark="AC" brandSubtitle="Agent CMS" eyebrow="COSMIC AGENT CENTER"
+ return <CmsShell activeView={view} brandMark="AC" brandSubtitle="Agent CMS" eyebrow="COSMIC AGENT CENTER"
   headerStatus="Agent operations only" inspectorOpen={false} navigation={nav}
   sidebarStatus={<><Activity size={14}/>Agent runtime console</>}
-  onNavigate={()=>{}}>{<Agents/>}</CmsShell>
+  onNavigate={setView}>{view==="agents"?<Agents/>:view==="runtime"?<Runtime/>:view==="social"?<Social/>:<Economy/>}</CmsShell>
 }
 
 function Title({title,sub}:{title:string;sub?:string}){return <div className="title"><p className="eyebrow">COSMIC AGENT CENTER</p><h2>{title}</h2>{sub&&<p>{sub}</p>}</div>}
@@ -88,4 +94,55 @@ function Agents(){
     {memory.length?memory.map(item=><div className="audit-row" key={item.id}><strong>{item.event_type}</strong><code>Importance {item.importance}</code><span>{String(item.created_at)}</span><p>{item.summary}</p>{item.details_json&&<details><summary>Details</summary><pre>{item.details_json}</pre></details>}</div>):<p className="muted">No memory events yet. Run a dry-run tick after entering an agent.</p>}</section>
    <section className="panel full-span"><Title title="Recent action logs" sub="Lifecycle and future action records from agent_action_logs"/>
     {logs.length?logs.map(log=><div className="audit-row" key={log.id}><strong>{log.action_type}</strong><code>{log.status}</code><span>{String(log.created_at)}</span><p>{log.message}</p></div>):<p className="muted">No runtime logs yet.</p>}</section></div>}</>
+}
+
+function Runtime(){
+ const [q,setQ]=useState(""),[sessions,setSessions]=useState<any[]>([]),[error,setError]=useState("");
+ useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/runtime/sessions?q=${encodeURIComponent(q)}`).then(setSessions).catch(x=>setError((x as Error).message))},160);return()=>clearTimeout(timer)},[q]);
+ const active=sessions.filter(row=>!row.ended_at).length;
+ return <><article className="panel intro"><Title title="Runtime sessions" sub="Live and historical runtime shells. This is read-only observability for agent lifecycle state."/></article>
+  <div className="metrics compact-metrics"><article><RadioTower/><small>Open sessions</small><strong>{active}</strong></article><article><Activity/><small>Loaded rows</small><strong>{sessions.length}</strong></article></div>
+  <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, character, state or task"/>
+  {error&&<div className="error">{error}</div>}
+  <section className="panel"><Title title="Session ledger" sub="Newest runtime sessions first."/>
+   <div className="ledger-list">{sessions.map(session=><article className="ledger-card" key={session.id}>
+    <div><strong>{session.display_name||session.character_name}</strong><small>{session.account_name} {"->"} {session.character_name}</small></div>
+    <span className={!session.ended_at?"active-state":"inactive-state"}>{session.state}</span>
+    <div className="ledger-grid"><Tile label="World" value={session.world}/><Tile label="Channel" value={session.channel}/><Tile label="Map" value={session.map_id}/><Tile label="Task" value={session.current_task||"none"}/><Tile label="Started" value={session.started_at}/><Tile label="Last tick" value={session.last_tick_at||"never"}/><Tile label="Ended" value={session.ended_at||"open"}/><Tile label="Stop reason" value={session.stop_reason||"none"}/></div>
+   </article>)}</div>{!sessions.length&&<p className="muted">No runtime sessions recorded yet.</p>}</section></>
+}
+
+function Social(){
+ const [q,setQ]=useState(""),[relationships,setRelationships]=useState<any[]>([]),[chat,setChat]=useState<any[]>([]),[error,setError]=useState("");
+ useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/social/relationships?q=${encodeURIComponent(q)}`).then(setRelationships).catch(x=>setError((x as Error).message));api<any[]>(`/api/agents/social/chat?q=${encodeURIComponent(q)}`).then(setChat).catch(x=>setError((x as Error).message))},160);return()=>clearTimeout(timer)},[q]);
+ return <><article className="panel intro"><Title title="Social memory" sub="Relationships and chat logs, ready for future party/friend/companion behavior."/></article>
+  <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, player, relationship, or message"/>
+  {error&&<div className="error">{error}</div>}
+  <div className="agent-detail"><section className="panel"><Title title="Relationships" sub={`${relationships.length} relationship records.`}/>
+   <div className="ledger-list">{relationships.map(row=><article className="ledger-card social-card" key={row.id}>
+    <div><strong>{row.display_name||row.agent_character_name} {"->"} {row.related_character_name}</strong><small>{row.related_account_name} | {row.relationship_type}</small></div>
+    <div className="ledger-grid"><Tile label="Trust" value={row.trust_score}/><Tile label="Affinity" value={row.affinity_score}/><Tile label="Updated" value={row.updated_at}/><Tile label="Notes" value={row.notes||"none"}/></div>
+   </article>)}</div>{!relationships.length&&<p className="muted">No relationship records yet.</p>}</section>
+   <section className="panel"><Title title="Chat logs" sub={`${chat.length} chat records.`}/>
+   <div className="ledger-list">{chat.map(row=><article className="ledger-card social-card" key={row.id}>
+    <div><strong>{row.display_name||row.agent_character_name}</strong><small>{row.channel_type} | {row.direction} | {row.created_at}</small></div>
+    <p>{row.message}</p><small className="muted">Sender {row.sender_name||row.sender_character_id||"unknown"} | Recipient {row.recipient_name||row.recipient_character_id||"none"}</small>
+   </article>)}</div>{!chat.length&&<p className="muted">No chat records yet.</p>}</section></div></>
+}
+
+function Economy(){
+ const [q,setQ]=useState(""),[ledger,setLedger]=useState<any[]>([]),[error,setError]=useState("");
+ useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/economy/ledger?q=${encodeURIComponent(q)}`).then(setLedger).catch(x=>setError((x as Error).message))},160);return()=>clearTimeout(timer)},[q]);
+ const meso=ledger.reduce((sum,row)=>sum+Number(row.meso_delta||0),0);
+ return <><article className="panel intro"><Title title="Economy ledger" sub="Item, meso, source and counterparty records for future trading, looting, merchant and reward behavior."/></article>
+  <div className="metrics compact-metrics"><article><Coins/><small>Loaded entries</small><strong>{ledger.length}</strong></article><article><Coins/><small>Net meso delta</small><strong>{meso.toLocaleString()}</strong></article></div>
+  <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, item ID, entry type, source, or counterparty"/>
+  {error&&<div className="error">{error}</div>}
+  <section className="panel"><Title title="Ledger entries" sub="Newest economy records first."/>
+   <div className="ledger-list">{ledger.map(row=><article className="ledger-card" key={row.id}>
+    <div><strong>{row.display_name||row.agent_character_name}</strong><small>{row.entry_type} | {row.created_at}</small></div>
+    <span className={Number(row.meso_delta||0)>=0?"active-state":"inactive-state"}>{Number(row.meso_delta||0).toLocaleString()} meso</span>
+    <div className="ledger-grid"><Tile label="Item" value={row.item_id||"none"}/><Tile label="Quantity" value={row.quantity}/><Tile label="Source" value={`${row.source_type||"none"} ${row.source_id||""}`}/><Tile label="Counterparty" value={row.counterparty_name||row.counterparty_character_id||"none"}/><Tile label="World" value={row.world??"unset"}/><Tile label="Map" value={row.map_id??"unset"}/></div>
+    {row.details_json&&<details><summary>Details JSON</summary><pre>{row.details_json}</pre></details>}
+   </article>)}</div>{!ledger.length&&<p className="muted">No economy ledger entries yet.</p>}</section></>
 }
