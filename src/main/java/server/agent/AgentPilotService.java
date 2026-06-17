@@ -20,6 +20,7 @@ public final class AgentPilotService {
     private final AgentIntentDispatcher intentDispatcher;
     private final AgentGoalRepository goalRepository;
     private final AgentGoalProgressEvaluator goalProgressEvaluator;
+    private final AgentRuntimeSafetyMonitor safetyMonitor = new AgentRuntimeSafetyMonitor();
 
     public AgentPilotService(
             AgentPerceptionService perceptionService,
@@ -44,6 +45,7 @@ public final class AgentPilotService {
             throw new IllegalStateException("Agent must enter the world before pilot ticks can run");
         }
 
+        long startedAt = System.nanoTime();
         AgentPerceptionSnapshot perception = perceptionService.snapshot(managed);
         AgentKnowledgeSnapshot knowledge = knowledgeService.snapshot(managed.character());
         AgentPlan plan = plannerService.plan(managed, perception, knowledge);
@@ -60,6 +62,14 @@ public final class AgentPilotService {
             goalRepository.recordPlanningTick(plan.goal(), intent, dispatchResult, resultPerception, knowledge, progressDecision, plan.reason());
         }
         runtimeService.rememberPilotTick(managed, intent, dispatchResult, resultPerception, knowledge, plan);
+        AgentRuntimeSafetyReport safetyReport = safetyMonitor.evaluate(
+                managed,
+                perception,
+                resultPerception,
+                dispatchResult,
+                (System.nanoTime() - startedAt) / 1_000_000L
+        );
+        runtimeService.rememberSafetyCheck(managed, intent, dispatchResult, resultPerception, safetyReport);
         runtimeService.heartbeat(managed.session(), message + " | map " + resultPerception.mapId());
 
         return new AgentPilotTickResult(

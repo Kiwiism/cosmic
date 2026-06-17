@@ -119,6 +119,14 @@ capability, duration, and warnings for unknown or future-gated actions. It does
 not execute scripts and does not replace the server-side parser; it exists so
 staff can catch obvious mistakes before saving or assigning scripts.
 
+Runtime safety diagnostics are intentionally observational in v1. Each pilot
+tick now checks for slow ticks, missing perception, detached client/character
+references, missing maps, and repeated identical blocked dispatches. When a
+threshold is crossed the runtime writes a `SAFETY_CHECK` action log and memory
+event so Agent CMS can show the warning without interrupting the agent or
+mutating gameplay. This gives staff enough evidence to tune policies, cooldowns,
+or goals before stricter automatic release/rollback behavior is enabled.
+
 Agent scripts also support lightweight control syntax for simple behavior
 loops:
 

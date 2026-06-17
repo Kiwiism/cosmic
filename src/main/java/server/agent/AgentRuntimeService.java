@@ -186,6 +186,55 @@ public final class AgentRuntimeService {
         rememberTradePreview(managed, intent, dispatchResult, perception);
     }
 
+    public void rememberSafetyCheck(
+            AgentManagedCharacter managed,
+            AgentIntent intent,
+            AgentIntentDispatchResult dispatchResult,
+            AgentPerceptionSnapshot perception,
+            AgentRuntimeSafetyReport report
+    ) throws SQLException {
+        if (report == null || !report.warning()) {
+            return;
+        }
+
+        String summary = "Agent safety warning: " + String.join("; ", report.issues());
+        String detailsJson = "{"
+                + "\"severity\":\"" + escapeJson(report.severity()) + "\","
+                + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
+                + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
+                + "\"dispatchStatus\":\"" + escapeJson(dispatchResult.status().name()) + "\","
+                + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
+                + "\"capability\":\"" + escapeJson(report.capability().name()) + "\","
+                + "\"elapsedMillis\":" + report.elapsedMillis() + ","
+                + "\"repeatedDispatchCount\":" + report.repeatedDispatchCount() + ","
+                + "\"issues\":" + stringArrayJson(report.issues()) + ","
+                + "\"perception\":" + perceptionDetailsJson(perception)
+                + "}";
+        repository.remember(new AgentMemoryEvent(
+                managed.profileId(),
+                "SAFETY_CHECK",
+                5,
+                null,
+                null,
+                perception.mapId(),
+                summary,
+                detailsJson
+        ));
+        repository.logAction(new AgentActionLogEntry(
+                managed.profileId(),
+                managed.session().id(),
+                "SAFETY_CHECK",
+                AgentActionStatus.BLOCKED,
+                perception.world(),
+                perception.channel(),
+                perception.mapId(),
+                report.capability().name(),
+                null,
+                summary,
+                detailsJson
+        ));
+    }
+
     public void failSession(AgentRuntimeSession session, String reason) {
         try {
             repository.endSession(session.id(), AgentRuntimeState.FAILED, reason);
@@ -860,6 +909,17 @@ public final class AgentRuntimeService {
                 builder.append(',');
             }
             builder.append(visibleObjectJson(objects.get(i)));
+        }
+        return builder.append(']').toString();
+    }
+
+    private String stringArrayJson(List<String> values) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append('"').append(escapeJson(values.get(i))).append('"');
         }
         return builder.append(']').toString();
     }

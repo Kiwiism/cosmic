@@ -221,6 +221,13 @@ public class AgentController {
                 WHERE agent_profile_id=?
                 ORDER BY id DESC LIMIT 1
                 """, id));
+        status.put("latestSafety", optionalGame("""
+                SELECT *
+                FROM agent_memory_events
+                WHERE agent_profile_id=?
+                  AND event_type='SAFETY_CHECK'
+                ORDER BY id DESC LIMIT 1
+                """, id));
         status.put("latestChat", optionalGame("""
                 SELECT *
                 FROM agent_chat_logs
