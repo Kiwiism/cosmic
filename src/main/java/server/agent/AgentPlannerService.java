@@ -40,7 +40,7 @@ public final class AgentPlannerService {
 
     private AgentPlan planGoal(AgentGoal goal, AgentPerceptionSnapshot perception, AgentKnowledgeSnapshot knowledge) {
         String goalType = goal.goalType() == null ? "" : goal.goalType().trim().toUpperCase(Locale.ROOT);
-        AgentIntent intent = switch (goalType) {
+        AgentIntent intent = recoveryIntent(knowledge).orElseGet(() -> switch (goalType) {
             case "IDLE" -> AgentIntent.idle(1000);
             case "WAIT" -> AgentIntent.waitFor(1000);
             case "CHAT", "SAY" -> AgentIntent.say(valueOr(goal.targetRef(), "Hello."));
@@ -57,9 +57,10 @@ public final class AgentPlannerService {
             case "USE_ITEM" -> AgentIntent.useItem(valueOr(goal.targetRef(), "potion"));
             case "EQUIP" -> AgentIntent.equip(valueOr(goal.targetRef(), "best available"));
             default -> AgentIntent.waitFor(1000);
-        };
+        });
         String reason = "Selected goal #" + goal.id() + " (" + goal.goalType() + ") at priority " + goal.priority()
                 + " for level " + knowledge.level() + " job " + knowledge.jobId()
+                + vitalsReason(knowledge)
                 + routeReason(goal, perception);
         return new AgentPlan(intent, goal, "agent_goals:" + goal.id(), reason);
     }
@@ -83,7 +84,8 @@ public final class AgentPlannerService {
     ) throws SQLException {
         String behavior = normalizedBehavior(managed.profile());
         long previousPlans = managed.session() == null ? 0L : runtimeRepository.countSessionActions(managed.session().id(), "INTENT_PLAN");
-        AgentIntent intent = switch (behavior) {
+        Optional<AgentIntent> recoveryIntent = recoveryIntent(knowledge);
+        AgentIntent intent = recoveryIntent.orElseGet(() -> switch (behavior) {
             case "GRINDER", "GRIND", "TRAINER", "TRAIN" -> grindBehavior(perception);
             case "LOOTER", "LOOT" -> lootBehavior(perception);
             case "COMPANION", "FOLLOWER", "FOLLOW", "HANG_AROUND", "HANGAROUND" ->
@@ -91,13 +93,14 @@ public final class AgentPlannerService {
             case "TOWN_IDLER", "TOWNIDLER", "TOWN", "SOCIAL", "IDLER" -> townIdleBehavior(perception, previousPlans);
             case "ROAMER", "ROAM" -> AgentIntent.roam("behavior:" + behavior);
             default -> AgentIntent.idle(30_000L);
-        };
+        });
         return new AgentPlan(
                 intent,
                 null,
-                "behavior_profile:" + behavior,
+                recoveryIntent.isPresent() ? "behavior_profile:" + behavior + "#recovery" : "behavior_profile:" + behavior,
                 "No active goal or script; selected behavior " + behavior
                         + " for level " + knowledge.level() + " job " + knowledge.jobId()
+                        + vitalsReason(knowledge)
         );
     }
 
@@ -131,6 +134,32 @@ public final class AgentPlannerService {
             return AgentIntent.roam("behavior:town idler social drift");
         }
         return AgentIntent.waitFor(5_000L);
+    }
+
+    private Optional<AgentIntent> recoveryIntent(AgentKnowledgeSnapshot knowledge) {
+        if (knowledge.maxHp() > 0 && knowledge.hp() <= 0) {
+            return Optional.of(AgentIntent.useItem("hp"));
+        }
+        if (belowPercent(knowledge.hp(), knowledge.maxHp(), 35)) {
+            return Optional.of(AgentIntent.useItem("hp"));
+        }
+        if (belowPercent(knowledge.mp(), knowledge.maxMp(), 20) && hasLikelyMpUser(knowledge)) {
+            return Optional.of(AgentIntent.useItem("mp"));
+        }
+        return Optional.empty();
+    }
+
+    private boolean belowPercent(int current, int max, int percent) {
+        return max > 0 && current * 100L <= max * (long) percent;
+    }
+
+    private boolean hasLikelyMpUser(AgentKnowledgeSnapshot knowledge) {
+        return knowledge.skills().stream().anyMatch(skill -> skill.level() > 0 && skill.skillId() / 10000 > 0);
+    }
+
+    private String vitalsReason(AgentKnowledgeSnapshot knowledge) {
+        return "; HP " + knowledge.hp() + "/" + knowledge.maxHp()
+                + ", MP " + knowledge.mp() + "/" + knowledge.maxMp();
     }
 
     private int nextScriptIndex(AgentRuntimeSession session, int scriptLength) throws SQLException {

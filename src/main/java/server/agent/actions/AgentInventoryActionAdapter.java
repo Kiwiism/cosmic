@@ -4,7 +4,9 @@ import client.Character;
 import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
+import client.inventory.manipulator.InventoryManipulator;
 import server.ItemInformationProvider;
+import server.StatEffect;
 import server.agent.AgentIntentCapability;
 import server.agent.AgentIntentType;
 
@@ -50,6 +52,10 @@ public final class AgentInventoryActionAdapter implements AgentActionAdapter {
         }
 
         Item item = candidate.get();
+        if (type == AgentIntentType.USE_ITEM && isRecoveryAlias(context.intent().argument())) {
+            return useRecoveryItem(context, item);
+        }
+
         String state = type == AgentIntentType.EQUIP ? "EQUIP_READY" : "ITEM_READY";
         String itemName = itemName(item.getItemId());
         return AgentActionResult.ok(
@@ -58,6 +64,32 @@ public final class AgentInventoryActionAdapter implements AgentActionAdapter {
                         + " in " + inventoryType + " slot " + item.getPosition(),
                 false,
                 inventoryDetailsJson(context, inventoryType, item, state, "Readiness only; item use/equip is intentionally not executed yet")
+        );
+    }
+
+    private AgentActionResult useRecoveryItem(AgentActionContext context, Item item) {
+        Character character = context.managed().character();
+        StatEffect effect = ItemInformationProvider.getInstance().getItemEffect(item.getItemId());
+        if (effect == null || !hasRecovery(effect)) {
+            return AgentActionResult.blockedByRuntime(
+                    capability(),
+                    "Selected item " + item.getItemId() + " has no HP/MP recovery effect",
+                    inventoryDetailsJson(context, InventoryType.USE, item, "NO_RECOVERY_EFFECT", "Recovery aliases only consume HP/MP recovery items")
+            );
+        }
+
+        int beforeHp = character.getHp();
+        int beforeMp = character.getMp();
+        InventoryManipulator.removeFromSlot(character.getClient(), InventoryType.USE, item.getPosition(), (short) 1, false);
+        effect.applyTo(character);
+        int afterHp = character.getHp();
+        int afterMp = character.getMp();
+        return AgentActionResult.ok(
+                capability(),
+                "Used recovery item " + (itemName(item.getItemId()) == null ? item.getItemId() : itemName(item.getItemId()))
+                        + " from USE slot " + item.getPosition(),
+                true,
+                recoveryDetailsJson(context, item, effect, beforeHp, beforeMp, afterHp, afterMp)
         );
     }
 
@@ -85,9 +117,30 @@ public final class AgentInventoryActionAdapter implements AgentActionAdapter {
         String lowerTarget = target.toLowerCase(Locale.ROOT);
         String lowerName = itemName.toLowerCase(Locale.ROOT);
         if (type == AgentIntentType.USE_ITEM && matchesPotionAlias(lowerName, lowerTarget)) {
-            return true;
+            return !isRecoveryAlias(target) || isRecoveryItem(item.getItemId());
         }
         return lowerName.contains(lowerTarget);
+    }
+
+    private boolean isRecoveryAlias(String target) {
+        if (target == null) {
+            return false;
+        }
+        String normalized = target.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("potion")
+                || normalized.equals("hp")
+                || normalized.equals("health")
+                || normalized.equals("mp")
+                || normalized.equals("mana");
+    }
+
+    private boolean hasRecovery(StatEffect effect) {
+        return effect.getHp() > 0 || effect.getMp() > 0 || effect.getHpRate() > 0.0 || effect.getMpRate() > 0.0;
+    }
+
+    private boolean isRecoveryItem(int itemId) {
+        StatEffect effect = ItemInformationProvider.getInstance().getItemEffect(itemId);
+        return effect != null && hasRecovery(effect);
     }
 
     private boolean matchesPotionAlias(String lowerName, String lowerTarget) {
@@ -132,6 +185,36 @@ public final class AgentInventoryActionAdapter implements AgentActionAdapter {
                 + "\"matchedItem\":" + itemJson(item) + ","
                 + "\"mutationEnabled\":false,"
                 + "\"note\":\"" + escapeJson(note) + "\""
+                + "}";
+    }
+
+    private String recoveryDetailsJson(
+            AgentActionContext context,
+            Item item,
+            StatEffect effect,
+            int beforeHp,
+            int beforeMp,
+            int afterHp,
+            int afterMp
+    ) {
+        return "{"
+                + "\"inventoryState\":\"RECOVERY_USED\","
+                + "\"intent\":\"" + context.intent().type().name() + "\","
+                + "\"argument\":\"" + escapeJson(context.intent().argument()) + "\","
+                + "\"world\":" + world(context) + ","
+                + "\"channel\":" + channel(context) + ","
+                + "\"mapId\":" + mapId(context) + ","
+                + "\"inventoryType\":\"USE\","
+                + "\"matchedItem\":" + itemJson(item) + ","
+                + "\"mutationEnabled\":true,"
+                + "\"effect\":{\"hp\":" + effect.getHp()
+                + ",\"mp\":" + effect.getMp()
+                + ",\"hpRate\":" + effect.getHpRate()
+                + ",\"mpRate\":" + effect.getMpRate()
+                + "},"
+                + "\"before\":{\"hp\":" + beforeHp + ",\"mp\":" + beforeMp + "},"
+                + "\"after\":{\"hp\":" + afterHp + ",\"mp\":" + afterMp + "},"
+                + "\"note\":\"Consumed one HP/MP recovery item through normal inventory mutation\""
                 + "}";
     }
 

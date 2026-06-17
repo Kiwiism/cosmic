@@ -5,6 +5,10 @@ import java.util.List;
 public record AgentKnowledgeSnapshot(
         int level,
         int jobId,
+        int hp,
+        int maxHp,
+        int mp,
+        int maxMp,
         int meso,
         List<SkillSummary> skills,
         List<InventorySummary> inventories

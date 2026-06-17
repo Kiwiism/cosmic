@@ -20,6 +20,10 @@ public final class AgentKnowledgeService {
         return new AgentKnowledgeSnapshot(
                 character.getLevel(),
                 character.getJob().getId(),
+                character.getHp(),
+                character.getCurrentMaxHp(),
+                character.getMp(),
+                character.getCurrentMaxMp(),
                 character.getMeso(),
                 skills(character),
                 inventories(character)

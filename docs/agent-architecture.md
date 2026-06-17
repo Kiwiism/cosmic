@@ -184,6 +184,11 @@ controller validation.
    - loot
    - approach visible drops before pickup instead of failing while still far
      away
+   - include HP/MP in planning snapshots
+   - prefer recovery intents before grind/goal actions when HP or MP is low
+   - consume one normal HP/MP recovery item only for explicit recovery aliases
+     (`hp`, `health`, `mp`, `mana`, `potion`); other item/equip intents remain
+     readiness-only until a stricter item policy is added
 
 11. **Economy**
     - trading

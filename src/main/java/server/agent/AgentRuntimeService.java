@@ -336,6 +336,10 @@ public final class AgentRuntimeService {
         return "{"
                 + "\"level\":" + knowledge.level() + ","
                 + "\"jobId\":" + knowledge.jobId() + ","
+                + "\"hp\":" + knowledge.hp() + ","
+                + "\"maxHp\":" + knowledge.maxHp() + ","
+                + "\"mp\":" + knowledge.mp() + ","
+                + "\"maxMp\":" + knowledge.maxMp() + ","
                 + "\"meso\":" + knowledge.meso() + ","
                 + "\"skills\":" + skillsJson(knowledge.skills()) + ","
                 + "\"inventories\":" + inventoriesJson(knowledge.inventories())
