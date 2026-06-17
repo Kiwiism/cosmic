@@ -161,7 +161,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
         }
 
         Portal portal = nearestPortal.get();
-        return moveTowardPoint(context, portal.getPosition(), "ROAM", "nearest safe portal " + portal.getName());
+        return executePortalWhenNearby(context, currentMap, portal, "ROAM", null);
     }
 
     private AgentActionResult executeNamedPortal(AgentActionContext context) {

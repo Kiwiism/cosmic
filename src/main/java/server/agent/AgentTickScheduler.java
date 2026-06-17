@@ -5,7 +5,9 @@ import org.slf4j.LoggerFactory;
 import server.TimerManager;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -21,6 +23,7 @@ public final class AgentTickScheduler {
     private final AgentSpawnCoordinator spawnCoordinator;
     private final AgentPilotService pilotService;
     private final AtomicBoolean ticking = new AtomicBoolean();
+    private final Map<Integer, Integer> consecutiveFailures = new ConcurrentHashMap<>();
     private ScheduledFuture<?> task;
 
     public AgentTickScheduler(AgentSpawnCoordinator spawnCoordinator, AgentPilotService pilotService) {
@@ -59,10 +62,16 @@ public final class AgentTickScheduler {
             for (AgentManagedCharacter managed : agents) {
                 try {
                     AgentPilotTickResult result = pilotService.tick(managed);
+                    consecutiveFailures.remove(managed.profileId());
                     log.debug("Agent profile {} tick planned {} with dispatch {}",
                             managed.profileId(), result.intent().type(), result.dispatchResult().status());
                 } catch (Exception e) {
-                    log.warn("Agent profile {} tick failed", managed.profileId(), e);
+                    int failures = consecutiveFailures.merge(managed.profileId(), 1, Integer::sum);
+                    log.warn("Agent profile {} tick failed ({}/3)", managed.profileId(), failures, e);
+                    if (failures >= 3) {
+                        consecutiveFailures.remove(managed.profileId());
+                        spawnCoordinator.release(managed.profile(), "Released after 3 consecutive agent tick failures");
+                    }
                 }
             }
         } finally {

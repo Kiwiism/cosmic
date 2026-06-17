@@ -138,7 +138,10 @@ controller validation.
    - load a normal character through an internal client
    - spawn/despawn safely
    - prevent duplicate real-client login
+   - prevent duplicate in-memory agent reservation for the same character
    - save state on shutdown/despawn
+   - release an entered agent after repeated tick failures so one broken agent
+     does not keep failing forever inside the scheduler
 
    The first implementation prepares characters without adding them to map or
    world player storage. The second slice adds a headless channel client so
@@ -157,6 +160,8 @@ controller validation.
    - town hangout
    - follow
    - patrol
+   - bounded local approach for mobs, drops, players, and portals
+   - safe portal traversal for roam and loaded route steps
 
 8. **Perception**
    - nearby players
@@ -177,6 +182,8 @@ controller validation.
    - basic attack
    - potion use
    - loot
+   - approach visible drops before pickup instead of failing while still far
+     away
 
 11. **Economy**
     - trading

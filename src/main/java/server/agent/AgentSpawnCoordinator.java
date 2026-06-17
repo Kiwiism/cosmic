@@ -35,6 +35,7 @@ public final class AgentSpawnCoordinator {
     private final AgentControlShell controlShell;
     private final Map<Integer, AgentManagedCharacter> preparedCharacters = new ConcurrentHashMap<>();
     private final Map<Integer, AgentManagedCharacter> enteredCharacters = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> profileByCharacterId = new ConcurrentHashMap<>();
 
     public AgentSpawnCoordinator(AgentRuntimeService runtimeService, AgentControlShell controlShell) {
         this.runtimeService = runtimeService;
@@ -48,43 +49,64 @@ public final class AgentSpawnCoordinator {
             return Optional.of(existing);
         }
 
+        Integer controllingProfileId = profileByCharacterId.putIfAbsent(profile.characterId(), profile.id());
+        if (controllingProfileId != null && controllingProfileId != profile.id()) {
+            log.warn("Refusing to prepare agent profile {} because character {} is already reserved by profile {}",
+                    profile.id(), profile.characterId(), controllingProfileId);
+            return Optional.empty();
+        }
+
         Optional<AgentRuntimeSession> session = controlShell.reserve(profile);
         if (session.isEmpty()) {
+            profileByCharacterId.remove(profile.characterId(), profile.id());
             return Optional.empty();
         }
 
         AgentSpawnPlan plan = controlShell.preflight(profile);
         if (!plan.ready()) {
             controlShell.release(profile, plan.controlDecision().message());
+            profileByCharacterId.remove(profile.characterId(), profile.id());
             return Optional.empty();
         }
 
-        Client client = Client.createHeadlessChannelClient(
-                -profile.id(),
-                "agent-runtime:" + profile.id(),
-                plan.world(),
-                plan.channel()
-        );
-        Character character = Character.loadCharFromDB(profile.characterId(), client, false);
-        client.setPlayer(character);
-        client.setAccID(character.getAccountID());
-        client.setGMLevel(character.gmLevel());
+        try {
+            Client client = Client.createHeadlessChannelClient(
+                    -profile.id(),
+                    "agent-runtime:" + profile.id(),
+                    plan.world(),
+                    plan.channel()
+            );
+            Character character = Character.loadCharFromDB(profile.characterId(), client, false);
+            client.setPlayer(character);
+            client.setAccID(character.getAccountID());
+            client.setGMLevel(character.gmLevel());
 
-        AgentManagedCharacter managed = new AgentManagedCharacter(
-                profile,
-                session.get(),
-                client,
-                character,
-                plan,
-                Instant.now(),
-                null
-        );
-        preparedCharacters.put(profile.id(), managed);
-        runtimeService.logLifecycle(profile.id(), session.get().id(), plan.world(), plan.channel(), plan.mapId(),
-                "Prepared character for future agent spawn");
-        log.info("Prepared agent profile {} character {} at world {} channel {} map {}",
-                profile.id(), profile.characterId(), plan.world(), plan.channel(), plan.mapId());
-        return Optional.of(managed);
+            AgentManagedCharacter managed = new AgentManagedCharacter(
+                    profile,
+                    session.get(),
+                    client,
+                    character,
+                    plan,
+                    Instant.now(),
+                    null
+            );
+            preparedCharacters.put(profile.id(), managed);
+            runtimeService.logLifecycle(profile.id(), session.get().id(), plan.world(), plan.channel(), plan.mapId(),
+                    "Prepared character for future agent spawn");
+            log.info("Prepared agent profile {} character {} at world {} channel {} map {}",
+                    profile.id(), profile.characterId(), plan.world(), plan.channel(), plan.mapId());
+            return Optional.of(managed);
+        } catch (Exception e) {
+            controlShell.release(profile, "Failed to prepare agent character: " + e.getMessage());
+            profileByCharacterId.remove(profile.characterId(), profile.id());
+            if (e instanceof SQLException) {
+                throw (SQLException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new SQLException("Failed to prepare agent character", e);
+        }
     }
 
     public Optional<AgentManagedCharacter> enterWorld(AgentProfile profile) throws SQLException {
@@ -114,39 +136,51 @@ public final class AgentSpawnCoordinator {
             return Optional.empty();
         }
 
-        Character character = Character.loadCharFromDB(profile.characterId(), client, true);
-        client.setPlayer(character);
-        client.setAccID(character.getAccountID());
-        client.setGMLevel(character.gmLevel());
+        try {
+            Character character = Character.loadCharFromDB(profile.characterId(), client, true);
+            client.setPlayer(character);
+            client.setAccID(character.getAccountID());
+            client.setGMLevel(character.gmLevel());
 
-        MapleMap map = character.getMap();
-        if (map == null) {
-            release(profile, "Agent character loaded without a map");
-            return Optional.empty();
+            MapleMap map = character.getMap();
+            if (map == null) {
+                release(profile, "Agent character loaded without a map");
+                return Optional.empty();
+            }
+
+            channel.addPlayer(character);
+            world.addPlayer(character);
+            character.setEnteredChannelWorld();
+            map.addPlayer(character);
+            character.visitMap(map);
+            character.setLoginTime(System.currentTimeMillis());
+
+            AgentManagedCharacter managed = prepared.withCharacter(character, Instant.now()).markEntered(Instant.now());
+            preparedCharacters.put(profile.id(), managed);
+            enteredCharacters.put(profile.id(), managed);
+            runtimeService.markRunning(managed.session(), "Agent entered world storage");
+            runtimeService.logLifecycle(profile.id(), managed.session().id(), managed.spawnPlan().world(),
+                    managed.spawnPlan().channel(), map.getId(), "Agent entered channel/world/map storage");
+            log.info("Entered agent profile {} character {} into world {} channel {} map {}",
+                    profile.id(), profile.characterId(), managed.spawnPlan().world(), managed.spawnPlan().channel(), map.getId());
+            return Optional.of(managed);
+        } catch (Exception e) {
+            release(profile, "Failed to enter agent world storage: " + e.getMessage());
+            if (e instanceof SQLException) {
+                throw (SQLException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new SQLException("Failed to enter agent world storage", e);
         }
-
-        channel.addPlayer(character);
-        world.addPlayer(character);
-        character.setEnteredChannelWorld();
-        map.addPlayer(character);
-        character.visitMap(map);
-        character.setLoginTime(System.currentTimeMillis());
-
-        AgentManagedCharacter managed = prepared.withCharacter(character, Instant.now()).markEntered(Instant.now());
-        preparedCharacters.put(profile.id(), managed);
-        enteredCharacters.put(profile.id(), managed);
-        runtimeService.markRunning(managed.session(), "Agent entered world storage");
-        runtimeService.logLifecycle(profile.id(), managed.session().id(), managed.spawnPlan().world(),
-                managed.spawnPlan().channel(), map.getId(), "Agent entered channel/world/map storage");
-        log.info("Entered agent profile {} character {} into world {} channel {} map {}",
-                profile.id(), profile.characterId(), managed.spawnPlan().world(), managed.spawnPlan().channel(), map.getId());
-        return Optional.of(managed);
     }
 
     public void release(AgentProfile profile, String reason) {
         AgentManagedCharacter managed = preparedCharacters.remove(profile.id());
         if (managed == null) {
             controlShell.release(profile, reason);
+            profileByCharacterId.remove(profile.characterId(), profile.id());
             return;
         }
 
@@ -161,10 +195,11 @@ public final class AgentSpawnCoordinator {
             runtimeService.stopSession(managed.session(), reason);
         }
         controlShell.forgetReservation(profile);
+        profileByCharacterId.remove(profile.characterId(), profile.id());
     }
 
     public void releaseAll(String reason) {
-        for (AgentManagedCharacter managed : preparedCharacters.values()) {
+        for (AgentManagedCharacter managed : List.copyOf(preparedCharacters.values())) {
             release(managed.profile(), reason);
         }
     }
