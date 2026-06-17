@@ -1,8 +1,11 @@
 package server.agent.actions;
 
 import client.Character;
+import server.ItemInformationProvider;
 import server.Shop;
 import server.ShopFactory;
+import server.ShopItem;
+import server.StatEffect;
 import server.agent.AgentIntentCapability;
 import server.agent.AgentIntentType;
 import server.agent.AgentPerceptionSnapshot;
@@ -10,6 +13,8 @@ import server.maps.MapleMap;
 
 import java.awt.Point;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public final class AgentShopActionAdapter implements AgentActionAdapter {
@@ -44,11 +49,14 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
         ShopTarget shopTarget = target.get();
         AgentPerceptionSnapshot.AgentVisibleObject npc = shopTarget.npc();
         if (npc.distanceSq() <= SHOP_RANGE_SQ) {
+            String state = isRecoveryTarget(context.intent().argument()) ? "RECOVERY_SHOP_READY" : "SHOP_READY";
             return AgentActionResult.ok(
                     capability(),
-                    "Shop " + shopTarget.shop().getId() + " at NPC " + npcLabel(npc) + " is ready for future shop interaction",
+                    state.equals("RECOVERY_SHOP_READY")
+                            ? "Shop " + shopTarget.shop().getId() + " at NPC " + npcLabel(npc) + " has recovery items ready for future purchase"
+                            : "Shop " + shopTarget.shop().getId() + " at NPC " + npcLabel(npc) + " is ready for future shop interaction",
                     false,
-                    shopDetailsJson(context, npc, shopTarget.shop(), "SHOP_READY", null)
+                    shopDetailsJson(context, npc, shopTarget.shop(), state, null)
             );
         }
 
@@ -76,11 +84,12 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                     return shop == null ? null : new ShopTarget(npc, shop);
                 })
                 .filter(shopTarget -> shopTarget != null)
+                .filter(shopTarget -> !isRecoveryTarget(target) || hasRecoveryCandidate(shopTarget.shop(), target))
                 .min(Comparator.comparingLong(shopTarget -> shopTarget.npc().distanceSq()));
     }
 
     private boolean matchesTarget(AgentPerceptionSnapshot.AgentVisibleObject npc, String target) {
-        if (target == null || target.isBlank() || "nearest".equalsIgnoreCase(target.trim())) {
+        if (target == null || target.isBlank() || "nearest".equalsIgnoreCase(target.trim()) || isRecoveryTarget(target)) {
             return true;
         }
         String trimmed = target.trim();
@@ -163,7 +172,7 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 + "\"mapId\":" + context.perception().mapId() + ","
                 + "\"agentPosition\":{\"x\":" + context.perception().x() + ",\"y\":" + context.perception().y() + "},"
                 + "\"shopRangeSq\":" + SHOP_RANGE_SQ + ","
-                + "\"shop\":" + shopJson(shop) + ","
+                + "\"shop\":" + shopJson(context, shop) + ","
                 + "\"target\":" + (npc == null ? "null" : npcJson(npc)) + ","
                 + "\"movement\":" + (movementJson == null ? "null" : movementJson)
                 + "}";
@@ -196,13 +205,87 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 + "}";
     }
 
-    private String shopJson(Shop shop) {
+    private String shopJson(AgentActionContext context, Shop shop) {
         if (shop == null) {
             return "null";
         }
         return "{"
                 + "\"shopId\":" + shop.getId() + ","
-                + "\"npcId\":" + shop.getNpcId()
+                + "\"npcId\":" + shop.getNpcId() + ","
+                + "\"itemCount\":" + shop.getItems().size() + ","
+                + "\"recoveryCandidates\":" + recoveryItemsJson(context, shop)
+                + "}";
+    }
+
+    private boolean isRecoveryTarget(String target) {
+        if (target == null) {
+            return false;
+        }
+        String normalized = target.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("recovery")
+                || normalized.equals("potion")
+                || normalized.equals("hp")
+                || normalized.equals("health")
+                || normalized.equals("mp")
+                || normalized.equals("mana");
+    }
+
+    private boolean hasRecoveryCandidate(Shop shop, String target) {
+        return shop.getItems().stream()
+                .anyMatch(item -> isMatchingRecoveryItem(item, target));
+    }
+
+    private String recoveryItemsJson(AgentActionContext context, Shop shop) {
+        Character character = context.managed().character();
+        int meso = character == null ? 0 : character.getMeso();
+        List<ShopItem> items = shop.getItems().stream()
+                .filter(item -> isMatchingRecoveryItem(item, context.intent().argument()))
+                .limit(8)
+                .toList();
+        StringBuilder builder = new StringBuilder("[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(shopItemJson(items.get(i), meso));
+        }
+        return builder.append(']').toString();
+    }
+
+    private boolean isMatchingRecoveryItem(ShopItem item, String target) {
+        StatEffect effect = ItemInformationProvider.getInstance().getItemEffect(item.getItemId());
+        if (effect == null || !hasRecovery(effect)) {
+            return false;
+        }
+        String normalized = target == null ? "" : target.trim().toLowerCase(Locale.ROOT);
+        if (normalized.equals("hp") || normalized.equals("health")) {
+            return effect.getHp() > 0 || effect.getHpRate() > 0.0;
+        }
+        if (normalized.equals("mp") || normalized.equals("mana")) {
+            return effect.getMp() > 0 || effect.getMpRate() > 0.0;
+        }
+        return true;
+    }
+
+    private boolean hasRecovery(StatEffect effect) {
+        return effect.getHp() > 0 || effect.getMp() > 0 || effect.getHpRate() > 0.0 || effect.getMpRate() > 0.0;
+    }
+
+    private String shopItemJson(ShopItem item, int meso) {
+        StatEffect effect = ItemInformationProvider.getInstance().getItemEffect(item.getItemId());
+        String name = ItemInformationProvider.getInstance().getName(item.getItemId());
+        return "{"
+                + "\"itemId\":" + item.getItemId() + ","
+                + "\"name\":\"" + escapeJson(name) + "\","
+                + "\"price\":" + item.getPrice() + ","
+                + "\"pitch\":" + item.getPitch() + ","
+                + "\"buyable\":" + item.getBuyable() + ","
+                + "\"affordable\":" + (item.getPrice() > 0 && meso >= item.getPrice()) + ","
+                + "\"effect\":{\"hp\":" + effect.getHp()
+                + ",\"mp\":" + effect.getMp()
+                + ",\"hpRate\":" + effect.getHpRate()
+                + ",\"mpRate\":" + effect.getMpRate()
+                + "}"
                 + "}";
     }
 

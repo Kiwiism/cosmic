@@ -92,8 +92,10 @@ pickups are written to `agent_economy_ledger`. `NPC` can select and approach a
 visible NPC, then records `NPC_READY` once inside interaction range; it does not
 open scripts or advance dialogs yet. `SHOP` can select and approach a visible
 NPC that has a database-backed shop, then records `SHOP_READY` once inside shop
-range; it does not open the shop or buy/sell items yet. `USEITEM` and `EQUIP`
-can inspect the agent's current inventory, resolve an item by id/name or simple
+range; `SHOP hp`, `SHOP mp`, `SHOP potion`, and `SHOP recovery` prefer visible
+shops with matching HP/MP recovery items and record affordable candidate details
+as `RECOVERY_SHOP_READY`. It does not open the shop or buy/sell items yet.
+`USEITEM` and `EQUIP` can inspect the agent's current inventory, resolve an item by id/name or simple
 aliases such as `hp`, `mp`, and `potion`, then record `ITEM_READY`,
 `EQUIP_READY`, `NO_ITEM`, or `NO_EQUIP`; they do not consume items or equip gear
 yet. `SKILL` and `CAST` can inspect learned skills, resolve a skill by id or
