@@ -2,6 +2,7 @@ package server.agent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import server.agent.actions.AgentActionService;
 import server.runtime.RuntimeModule;
 import server.runtime.RuntimeModuleContext;
 
@@ -29,6 +30,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
     private final AgentGoalProgressEvaluator goalProgressEvaluator;
     private final AgentPolicyRepository policyRepository;
     private final AgentIntentPolicyService intentPolicyService;
+    private final AgentActionService actionService;
     private final AgentIntentDispatcher intentDispatcher;
     private final AgentPilotService pilotService;
     private final AgentTickScheduler tickScheduler;
@@ -52,7 +54,8 @@ public final class AgentRuntimeModule implements RuntimeModule {
         this.goalProgressEvaluator = new AgentGoalProgressEvaluator();
         this.policyRepository = new AgentPolicyRepository();
         this.intentPolicyService = new AgentIntentPolicyService(policyRepository);
-        this.intentDispatcher = new AgentIntentDispatcher(runtimeService, intentPolicyService);
+        this.actionService = new AgentActionService(navigationGraphService);
+        this.intentDispatcher = new AgentIntentDispatcher(runtimeService, intentPolicyService, actionService);
         this.pilotService = new AgentPilotService(perceptionService, knowledgeService, plannerService, runtimeService, intentDispatcher, goalRepository, goalProgressEvaluator);
         this.tickScheduler = new AgentTickScheduler(spawnCoordinator, pilotService);
     }

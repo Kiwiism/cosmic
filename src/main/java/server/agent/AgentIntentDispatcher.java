@@ -1,6 +1,11 @@
 package server.agent;
 
+import server.agent.actions.AgentActionContext;
+import server.agent.actions.AgentActionResult;
+import server.agent.actions.AgentActionService;
+
 import java.sql.SQLException;
+import java.time.Instant;
 
 /**
  * Policy-gated execution boundary for planned agent intents.
@@ -11,10 +16,16 @@ import java.sql.SQLException;
 public final class AgentIntentDispatcher {
     private final AgentRuntimeService runtimeService;
     private final AgentIntentPolicyService policyService;
+    private final AgentActionService actionService;
 
-    public AgentIntentDispatcher(AgentRuntimeService runtimeService, AgentIntentPolicyService policyService) {
+    public AgentIntentDispatcher(
+            AgentRuntimeService runtimeService,
+            AgentIntentPolicyService policyService,
+            AgentActionService actionService
+    ) {
         this.runtimeService = runtimeService;
         this.policyService = policyService;
+        this.actionService = actionService;
     }
 
     public AgentIntentDispatchResult dispatch(
@@ -24,19 +35,21 @@ public final class AgentIntentDispatcher {
             String scriptSource
     ) throws SQLException {
         AgentIntentPolicyDecision decision = policyService.evaluate(managed.profile(), intent);
-        AgentIntentDispatchResult result;
+        AgentActionResult actionResult;
         if (!decision.allowed()) {
-            result = AgentIntentDispatchResult.blocked(intent, decision.message());
+            actionResult = AgentActionResult.blockedByPolicy(decision.capability(), decision.message());
         } else {
-            result = switch (intent.type()) {
-                case IDLE -> AgentIntentDispatchResult.ok(intent, "Idle intent accepted as a no-op");
-                case WAIT -> AgentIntentDispatchResult.ok(intent, "Wait intent accepted as a no-op");
-                case UNKNOWN -> AgentIntentDispatchResult.blocked(intent, "Unknown script intent blocked");
-                default -> AgentIntentDispatchResult.blockedByRuntime(intent,
-                        decision.capability().name() + " capability is policy-enabled but runtime execution is not implemented yet");
-            };
+            actionResult = actionService.execute(new AgentActionContext(
+                    managed,
+                    intent,
+                    perception,
+                    decision,
+                    scriptSource,
+                    Instant.now()
+            ));
         }
 
+        AgentIntentDispatchResult result = AgentIntentDispatchResult.fromActionResult(intent, actionResult);
         runtimeService.logDispatchedIntent(managed, intent, perception, scriptSource, result);
         return result;
     }

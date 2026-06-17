@@ -318,6 +318,8 @@ public final class AgentRuntimeService {
                 + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
                 + "\"capability\":\"" + escapeJson(dispatchResult.capability().name()) + "\","
                 + "\"policyAllowed\":" + dispatchResult.policyAllowed() + ","
+                + "\"gameplayMutated\":" + dispatchResult.gameplayMutated() + ","
+                + "\"dryRun\":" + dispatchResult.dryRun() + ","
                 + "\"perception\":" + perceptionDetailsJson(perception)
                 + "}";
     }
