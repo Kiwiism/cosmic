@@ -117,6 +117,10 @@ function Agents(){
  async function setGoalStatus(goal:any,status:string){if(!selected)return;setError("");try{await api<any>(`/api/agents/${selected.id}/goals/${goal.id}/status`,{method:"PUT",body:JSON.stringify({status,reason})});loadAgentDetails()}catch(x){setError((x as Error).message)}}
  async function saveScript(script:any){setError("");try{const saved=await api<any>(script.id?`/api/agents/scripts/${script.id}`:"/api/agents/scripts",{method:script.id?"PUT":"POST",body:JSON.stringify({name:script.name,version:Number(script.version)||1,enabled:Boolean(script.enabled),scriptType:script.script_type||script.scriptType||"TEXT",body:script.body||"",reason})});setEditingScript(null);setScriptDraft({...scriptDraft,name:"idle-town",body:"IDLE 30"});loadScripts();return saved}catch(x){setError((x as Error).message)}}
  const goalProgress=(goal:any)=>{try{return goal.progress_json?JSON.parse(goal.progress_json):null}catch{return null}};
+ const parseDetails=(value:any)=>{try{return value?JSON.parse(String(value)):null}catch{return null}};
+ const latestRouteMemory=memory.find(item=>item.event_type==="NAVIGATION_ROUTE");
+ const latestRoute=parseDetails(latestRouteMemory?.details_json);
+ const route=latestRoute?.route;
  return <><article className="panel intro"><Title title="Agent foundation" sub="Dormant agent profiles, control preflight, logs and future behavior wiring. Runtime remains disabled unless enabled in Features & general."/></article>
   <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, account, character or ID"/>
   {error&&<div className="error">{error}</div>}
@@ -158,6 +162,14 @@ function Agents(){
      <span className={policy.effective?"active-state":"inactive-state"}>{policy.effective?"Allowed":"Blocked"}</span>
      <div className="policy-actions"><button className="secondary" onClick={()=>setPolicy(policy,true)}>Allow</button><button className="secondary" onClick={()=>setPolicy(policy,false)}>Block</button><button className="secondary" disabled={!policy.overridden} onClick={()=>resetPolicy(policy)}>Use fallback</button></div>
     </article>)}</div></section>
+   <section className="panel full-span"><Title title="Navigation route state" sub="Latest dry-run route preview recorded by the server-side navigation adapter."/>
+    {route?<div className="route-panel">
+     <div className="value-grid"><Tile label="State" value={route.routeState||"unknown"}/><Tile label="From map" value={route.fromMapId}/><Tile label="Target map" value={route.toMapId}/><Tile label="Steps" value={route.stepCount}/><Tile label="Dispatch" value={latestRoute.dispatchStatus}/><Tile label="Recorded" value={latestRouteMemory?.created_at}/></div>
+     <p className="muted">{latestRoute.dispatchMessage||route.message}</p>
+     {route.nextStep&&<article className="route-next"><strong>Next portal</strong><span>{route.nextStep.portalName} on map {route.nextStep.fromMapId} -&gt; {route.nextStep.toMapId}</span><small>x {route.nextStep.position?.x??0}, y {route.nextStep.position?.y??0} | {route.nextStep.open?"open":"closed"} | {route.nextStep.scripted?"scripted":"plain portal"}</small></article>}
+     {Array.isArray(route.steps)&&route.steps.length?<ol className="route-steps">{route.steps.map((step:any,index:number)=><li key={`${step.fromMapId}-${step.portalId}-${index}`}><strong>{index+1}. {step.fromMapName||step.fromMapId}</strong><span>Portal {step.portalName} -&gt; map {step.toMapId}</span><small>x {step.position?.x??0}, y {step.position?.y??0} | type {step.portalType} | {step.open?"open":"closed"} | {step.scripted?"scripted":"plain"}</small></li>)}</ol>:<p className="muted">No route steps recorded. The agent may already be on the target map, or the route was unavailable.</p>}
+     <details><summary>Raw route JSON</summary><pre>{JSON.stringify(latestRoute,null,2)}</pre></details>
+    </div>:<p className="muted">No route state yet. Add or activate a MOVE_TO_MAP goal, allow navigation policy, enter the agent, then run a dry-run tick.</p>}</section>
    <section className="panel full-span"><Title title="Recent memory" sub="Compact observation checkpoints recorded during dry-run ticks."/>
     {memory.length?memory.map(item=><div className="audit-row" key={item.id}><strong>{item.event_type}</strong><code>Importance {item.importance}</code><span>{String(item.created_at)}</span><p>{item.summary}</p>{item.details_json&&<details><summary>Details</summary><pre>{item.details_json}</pre></details>}</div>):<p className="muted">No memory events yet. Run a dry-run tick after entering an agent.</p>}</section>
    <section className="panel full-span"><Title title="Recent action logs" sub="Lifecycle and future action records from agent_action_logs"/>
