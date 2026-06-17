@@ -85,9 +85,12 @@ pickups are written to `agent_economy_ledger`. `NPC` can select and approach a
 visible NPC, then records `NPC_READY` once inside interaction range; it does not
 open scripts or advance dialogs yet. `SHOP` can select and approach a visible
 NPC that has a database-backed shop, then records `SHOP_READY` once inside shop
-range; it does not open the shop or buy/sell items yet. The future-facing verbs
-`TRADE`, `PARTY`, `USEITEM`, and `EQUIP` are parsed and audited, but blocked
-until their dedicated systems are implemented.
+range; it does not open the shop or buy/sell items yet. `USEITEM` and `EQUIP`
+can inspect the agent's current inventory, resolve an item by id/name or simple
+aliases such as `hp`, `mp`, and `potion`, then record `ITEM_READY`,
+`EQUIP_READY`, `NO_ITEM`, or `NO_EQUIP`; they do not consume items or equip gear
+yet. The future-facing verbs `TRADE` and `PARTY` are parsed and audited, but
+blocked until their dedicated systems are implemented.
 
 When an agent has no active goal, script fallback advances through parsed script
 lines using the current runtime session's previous `INTENT_PLAN` count as the

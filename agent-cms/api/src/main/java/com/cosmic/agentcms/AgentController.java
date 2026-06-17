@@ -34,7 +34,7 @@ public class AgentController {
             new AgentCapabilityPolicy("intent.shop.enabled", "Shop interaction", "Allows SHOP/MERCHANT intents to approach visible shop NPCs and record readiness. Buying and selling are not enabled yet.", false),
             new AgentCapabilityPolicy("intent.trade.enabled", "Trade", "Allows future TRADE intents to pass the policy gate.", false),
             new AgentCapabilityPolicy("intent.party.enabled", "Party", "Allows future PARTY intents to pass the policy gate.", false),
-            new AgentCapabilityPolicy("intent.inventory.enabled", "Inventory", "Allows future USEITEM and EQUIP intents to pass the policy gate.", false),
+            new AgentCapabilityPolicy("intent.inventory.enabled", "Inventory", "Allows USEITEM and EQUIP readiness checks to inspect matching inventory items without consuming or equipping them.", false),
             new AgentCapabilityPolicy("intent.script.enabled", "Script fallback", "Allows unknown script intents to pass the policy gate. Keep disabled unless debugging parser behavior.", false)
     );
     private static final List<AgentCooldownPolicy> COOLDOWN_POLICIES = List.of(
@@ -47,7 +47,7 @@ public class AgentController {
             new AgentCooldownPolicy("cooldown.shop.millis", "Shop capability", "Default pacing for shop approach and readiness intents.", 2_000),
             new AgentCooldownPolicy("cooldown.trade.millis", "Trade capability", "Default pacing for future trade intents.", 5_000),
             new AgentCooldownPolicy("cooldown.party.millis", "Party capability", "Default pacing for future party intents.", 3_000),
-            new AgentCooldownPolicy("cooldown.inventory.millis", "Inventory capability", "Default pacing for future item use and equip intents.", 1_500),
+            new AgentCooldownPolicy("cooldown.inventory.millis", "Inventory capability", "Default pacing for item use and equip readiness checks.", 1_500),
             new AgentCooldownPolicy("cooldown.script.millis", "Script fallback capability", "Default pacing for unknown script intents.", 1_000),
             new AgentCooldownPolicy("cooldown.say.millis", "SAY override", "Optional override for SAY intent pacing. Falls back to chat capability when unset.", 10_000),
             new AgentCooldownPolicy("cooldown.move_to_map.millis", "MOVE_TO_MAP override", "Optional override for multi-map navigation pacing.", 1_000),
@@ -1036,7 +1036,7 @@ public class AgentController {
     }
 
     private boolean futureGatedIntent(String intent) {
-        return List.of("TRADE", "PARTY", "USE_ITEM", "EQUIP", "UNKNOWN").contains(intent);
+        return List.of("TRADE", "PARTY", "UNKNOWN").contains(intent);
     }
 
     private String warningForIntent(String intent) {
@@ -1046,7 +1046,7 @@ public class AgentController {
         if (futureGatedIntent(intent)) {
             return "Parsed, but this intent still needs a dedicated runtime adapter before it can affect gameplay.";
         }
-        if (List.of("SAY", "ROAM", "MOVE", "MOVE_TO_MAP", "FOLLOW_CHARACTER", "USE_PORTAL", "LOOT", "ATTACK", "GRIND", "NPC", "SHOP").contains(intent)) {
+        if (List.of("SAY", "ROAM", "MOVE", "MOVE_TO_MAP", "FOLLOW_CHARACTER", "USE_PORTAL", "LOOT", "ATTACK", "GRIND", "NPC", "SHOP", "USE_ITEM", "EQUIP").contains(intent)) {
             return "Parsed. Execution still depends on the agent capability policy and cooldown settings.";
         }
         return "Parsed and supported by the current no-op/self runtime.";
