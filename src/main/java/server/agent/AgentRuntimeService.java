@@ -19,6 +19,7 @@ public final class AgentRuntimeService {
     private static final Pattern LOOT_MESO_PATTERN = Pattern.compile("\"drop\"\\s*:\\s*\\{[^}]*\"meso\"\\s*:\\s*(null|-?\\d+)");
     private static final Pattern CHAT_STATE_PATTERN = Pattern.compile("\"chatState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern CHAT_MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
+    private static final Pattern COMBAT_STATE_PATTERN = Pattern.compile("\"combatState\"\\s*:\\s*\"([^\"]*)\"");
 
     private final AgentRuntimeRepository repository;
     private final AgentControlGuard controlGuard;
@@ -170,6 +171,7 @@ public final class AgentRuntimeService {
         rememberLootEconomy(managed, intent, dispatchResult, perception);
         rememberOutboundChat(managed, intent, dispatchResult);
         rememberTargetScan(managed, perception);
+        rememberCombatPreview(managed, intent, dispatchResult, perception);
     }
 
     public void failSession(AgentRuntimeSession session, String reason) {
@@ -540,6 +542,35 @@ public final class AgentRuntimeService {
                 ? String.valueOf(object.templateId() == null ? object.objectId() : object.templateId())
                 : object.name();
         return label + " " + name + " at " + object.distanceSq();
+    }
+
+    private void rememberCombatPreview(
+            AgentManagedCharacter managed,
+            AgentIntent intent,
+            AgentIntentDispatchResult dispatchResult,
+            AgentPerceptionSnapshot perception
+    ) throws SQLException {
+        if (dispatchResult.capability() != AgentIntentCapability.COMBAT || dispatchResult.detailsJson() == null) {
+            return;
+        }
+
+        String combatState = extractString(COMBAT_STATE_PATTERN, dispatchResult.detailsJson());
+        repository.remember(new AgentMemoryEvent(
+                managed.profileId(),
+                "COMBAT_PREVIEW",
+                dispatchResult.status() == AgentActionStatus.OK ? 3 : 2,
+                null,
+                null,
+                perception.mapId(),
+                "Combat " + intent.type() + " state: " + (combatState == null ? dispatchResult.status() : combatState),
+                "{"
+                        + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
+                        + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
+                        + "\"dispatchStatus\":\"" + escapeJson(dispatchResult.status().name()) + "\","
+                        + "\"dispatchMessage\":\"" + escapeJson(dispatchResult.message()) + "\","
+                        + "\"combat\":" + nullableJsonObject(dispatchResult.detailsJson())
+                        + "}"
+        ));
     }
 
     private Integer extractLocatedTargetId(String detailsJson) {
