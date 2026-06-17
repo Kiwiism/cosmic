@@ -5,6 +5,7 @@ This repository keeps the original Cosmic server setup guide below, but adds ope
 
 - **Database CMS**: a visual web interface for viewing and updating game database data such as mobs, items, maps, drops, shops, gachapon, accounts, characters, inventory, and storage.
 - **Server CMS**: a separate operations console for server-side configuration, command policy, world/rate settings, runtime diagnostics, and restart-applied overrides.
+- **Agent CMS**: a separate control center for server-side agent profiles, goals, scripts, policies, memory, route state, and runtime controls.
 - **Runtime hardening**: safer executor lifecycle, bounded background/persistence queues, runtime metrics, autosave backpressure, shutdown cleanup, and several static leak/consistency fixes.
 - **Command and staff tooling updates**: reorganized command access levels, CMS-visible command policy overrides, AP/SP reset improvements, and removal of duplicate command registrations.
 
@@ -12,13 +13,14 @@ The upstream Cosmic project remains the original source. This fork has been upda
 
 ## Fork-specific services
 
-This fork uses three MySQL schemas by default:
+This fork uses four MySQL schemas by default:
 
 - `cosmic`: original game database used by the server.
 - `cosmic_database_cms`: Database CMS-owned authentication, audit, catalog, draft, and queued-operation data.
 - `cosmic_server_cms`: Server CMS-owned settings, command policy, audit, and operations data.
+- `cosmic_agent_cms`: Agent CMS-owned authentication and audit data.
 
-Both CMS APIs use Liquibase migrations. Their JDBC URLs include `createDatabaseIfNotExist=true`, so the CMS databases and tables are created on first startup when the configured MySQL user has `CREATE` permissions. Existing schemas are preserved and only unapplied migrations run on later startups.
+The CMS APIs use Liquibase migrations. Their JDBC URLs include `createDatabaseIfNotExist=true`, so the CMS databases and tables are created on first startup when the configured MySQL user has `CREATE` permissions. Existing schemas are preserved and only unapplied migrations run on later startups.
 
 ### Database CMS
 
@@ -71,6 +73,31 @@ Stop it with:
 ```
 
 Server CMS settings are desired state. Most server overrides apply on the next Cosmic restart, and the UI labels whether a setting needs no client/WZ edit, a WZ edit, a client edit, or both for the in-game display to match. If the Server CMS database is unavailable, or `USE_SERVER_CMS_OVERRIDES: false` is set in `config.yaml`, Cosmic falls back to the original `config.yaml` and Java-coded defaults.
+
+### Agent CMS
+
+Agent CMS is for **agent life and behavior**.
+
+- Web: `http://localhost:3002`
+- API: `http://localhost:8084`
+- Folder: `agent-cms`
+- CMS database: `cosmic_agent_cms`
+- Agent runtime data target: `cosmic`
+- Optional private live bridge: `http://127.0.0.1:8787`
+
+Configure it by copying `agent-cms/.env.example` to `agent-cms/.env` and setting your local MySQL password. Start it with:
+
+```powershell
+.\agent-cms\start-agent-cms.ps1
+```
+
+Stop it with:
+
+```powershell
+.\agent-cms\stop-agent-cms.ps1
+```
+
+Agent CMS owns only its login/audit database. Agent profiles, goals, scripts, policies, memory, action logs, and runtime sessions are stored in the main `cosmic` game database because the Cosmic server reads them directly. Agent CMS can edit those records without the live bridge. Live runtime actions such as prepare, enter, dry-run tick, and release require the optional private bridge.
 
 ### Live bridge
 
@@ -149,12 +176,13 @@ You will start by installing the database server and database client. Then you w
 
 #### CMS database notes
 
-The original `cosmic` schema is still the game database. The two CMS schemas are separate:
+The original `cosmic` schema is still the game database. The three CMS schemas are separate:
 
 - `cosmic_database_cms` is used by Database CMS.
 - `cosmic_server_cms` is used by Server CMS.
+- `cosmic_agent_cms` is used by Agent CMS.
 
-You normally do not need to create those two schemas manually. The CMS API startup creates them when they do not exist, as long as the configured MySQL user can create databases and tables.
+You normally do not need to create those CMS schemas manually. The CMS API startup creates them when they do not exist, as long as the configured MySQL user can create databases and tables.
 
 ### 2 - Server
 You will start by cloning the repository, then configure the database properties and lastly start the server.

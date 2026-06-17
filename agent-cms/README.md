@@ -21,3 +21,7 @@ It is intentionally separate from Server CMS. Server CMS manages server configur
 ```
 
 Copy `.env.example` to `.env` and fill credentials if your local MySQL password is not blank.
+
+The API uses Liquibase and `createDatabaseIfNotExist=true`, so `cosmic_agent_cms` and its tables are created on first startup when the configured MySQL user has permission to create databases.
+
+The web app normally uses dependencies installed in `agent-cms/web`. If they are not present, the start script can reuse `server-cms/web/node_modules` when Server CMS dependencies are already installed.

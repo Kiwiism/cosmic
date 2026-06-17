@@ -17,6 +17,12 @@ New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 
 $api = Join-Path $PSScriptRoot "api"
 $web = Join-Path $PSScriptRoot "web"
+$agentNodeModules = Join-Path $web "node_modules"
+$serverNodeModules = Join-Path $root "server-cms\web\node_modules"
+if (-not (Test-Path -LiteralPath $agentNodeModules) -and (Test-Path -LiteralPath $serverNodeModules)) {
+    New-Item -ItemType Junction -Path $agentNodeModules -Target $serverNodeModules | Out-Null
+}
+
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     $nodeExecutable = $node.Source
@@ -28,12 +34,7 @@ if (-not (Test-Path -LiteralPath $nodeExecutable)) {
 }
 $next = Join-Path $web "node_modules\next\dist\bin\next"
 if (-not (Test-Path -LiteralPath $next)) {
-    $serverCmsNext = Join-Path $root "server-cms\web\node_modules\next\dist\bin\next"
-    if (Test-Path -LiteralPath $serverCmsNext) {
-        $next = $serverCmsNext
-    } else {
-        throw "Agent CMS web dependencies are missing. Install them in agent-cms/web first."
-    }
+    throw "Agent CMS web dependencies are missing. Install them in agent-cms/web first, or install Server CMS web dependencies so this script can reuse them."
 }
 
 & (Join-Path $root "mvnw.cmd") -q -f (Join-Path $api "pom.xml") package
