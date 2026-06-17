@@ -197,6 +197,68 @@ public class AgentController {
                 """, id);
     }
 
+    @GetMapping("/scripts")
+    List<Map<String, Object>> scripts(@RequestParam(defaultValue = "") String q) {
+        return gameJdbc.queryForList("""
+                SELECT id, name, version, enabled, script_type, body, created_by, created_at, updated_at
+                FROM agent_scripts
+                WHERE name LIKE ? OR body LIKE ? OR CAST(id AS CHAR) LIKE ?
+                ORDER BY enabled DESC, name, version DESC, id DESC
+                LIMIT 200
+                """, like(q), like(q), like(q));
+    }
+
+    @PostMapping("/scripts")
+    @ResponseStatus(HttpStatus.CREATED)
+    Map<String, Object> createScript(@Valid @RequestBody SaveScript body, Principal principal) {
+        gameJdbc.update("""
+                INSERT INTO agent_scripts(name, version, enabled, script_type, body, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                valueOr(body.name(), "default"),
+                body.version() == null ? 1 : body.version(),
+                Boolean.TRUE.equals(body.enabled()),
+                valueOr(body.scriptType(), "TEXT"),
+                valueOr(body.body(), ""),
+                principal.getName());
+        Map<String, Object> created = oneGame("""
+                SELECT id, name, version, enabled, script_type, body, created_by, created_at, updated_at
+                FROM agent_scripts
+                ORDER BY id DESC LIMIT 1
+                """);
+        audit(principal, "AGENT_SCRIPT_CREATE", "agent_script:" + created.get("id"), null, created,
+                valueOr(body.reason(), "Created agent script through Server CMS"));
+        return created;
+    }
+
+    @PutMapping("/scripts/{scriptId}")
+    Map<String, Object> updateScript(@PathVariable int scriptId, @Valid @RequestBody SaveScript body, Principal principal) {
+        Map<String, Object> before = oneGame("""
+                SELECT id, name, version, enabled, script_type, body, created_by, created_at, updated_at
+                FROM agent_scripts
+                WHERE id=?
+                """, scriptId);
+        gameJdbc.update("""
+                UPDATE agent_scripts
+                SET name=?, version=?, enabled=?, script_type=?, body=?
+                WHERE id=?
+                """,
+                valueOr(body.name(), String.valueOf(before.get("name"))),
+                body.version() == null ? Number.class.cast(before.get("version")).intValue() : body.version(),
+                Boolean.TRUE.equals(body.enabled()),
+                valueOr(body.scriptType(), String.valueOf(before.get("script_type"))),
+                valueOr(body.body(), ""),
+                scriptId);
+        Map<String, Object> after = oneGame("""
+                SELECT id, name, version, enabled, script_type, body, created_by, created_at, updated_at
+                FROM agent_scripts
+                WHERE id=?
+                """, scriptId);
+        audit(principal, "AGENT_SCRIPT_UPDATE", "agent_script:" + scriptId, before, after,
+                valueOr(body.reason(), "Updated agent script through Server CMS"));
+        return after;
+    }
+
     @GetMapping("/{id}/goals")
     List<Map<String, Object>> goals(@PathVariable int id) {
         agent(id);
@@ -413,6 +475,8 @@ public class AgentController {
     record UpdatePolicy(Boolean enabled, String reason) {}
 
     record AgentCapabilityPolicy(String key, String label, String description, boolean defaultEnabled) {}
+
+    record SaveScript(String name, Integer version, Boolean enabled, String scriptType, String body, String reason) {}
 
     record CreateGoal(
             String goalType,
