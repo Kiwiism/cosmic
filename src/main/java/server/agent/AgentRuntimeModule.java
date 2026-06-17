@@ -49,7 +49,7 @@ public final class AgentRuntimeModule implements RuntimeModule {
         this.policyRepository = new AgentPolicyRepository();
         this.intentPolicyService = new AgentIntentPolicyService(policyRepository);
         this.intentDispatcher = new AgentIntentDispatcher(runtimeService, intentPolicyService);
-        this.pilotService = new AgentPilotService(perceptionService, knowledgeService, plannerService, runtimeService, intentDispatcher);
+        this.pilotService = new AgentPilotService(perceptionService, knowledgeService, plannerService, runtimeService, intentDispatcher, goalRepository);
         this.tickScheduler = new AgentTickScheduler(spawnCoordinator, pilotService);
     }
 

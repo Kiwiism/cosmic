@@ -204,7 +204,7 @@ public class AgentController {
                 SELECT *
                 FROM agent_goals
                 WHERE agent_profile_id=?
-                ORDER BY FIELD(status, 'ACTIVE', 'RUNNING', 'PENDING', 'PAUSED', 'COMPLETED', 'FAILED'),
+                ORDER BY FIELD(status, 'ACTIVE', 'RUNNING', 'PENDING', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELLED'),
                          priority DESC, id ASC
                 LIMIT 100
                 """, id);
@@ -237,6 +237,37 @@ public class AgentController {
         audit(principal, "AGENT_GOAL_CREATE", "agent:" + id + ":goal:" + created.get("id"), null, created,
                 "Created agent goal through Server CMS");
         return created;
+    }
+
+    @PutMapping("/{id}/goals/{goalId}/status")
+    Map<String, Object> updateGoalStatus(@PathVariable int id, @PathVariable long goalId,
+                                         @Valid @RequestBody UpdateGoalStatus body, Principal principal) {
+        agent(id);
+        String status = valueOr(body.status(), "").trim().toUpperCase();
+        if (!List.of("PENDING", "ACTIVE", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED").contains(status)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported goal status");
+        }
+
+        Map<String, Object> before = oneGame("""
+                SELECT *
+                FROM agent_goals
+                WHERE id=? AND agent_profile_id=?
+                """, goalId, id);
+        gameJdbc.update("""
+                UPDATE agent_goals
+                SET status=?,
+                    completed_at = CASE WHEN ? IN ('COMPLETED', 'FAILED', 'CANCELLED') THEN CURRENT_TIMESTAMP ELSE completed_at END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id=? AND agent_profile_id=?
+                """, status, status, goalId, id);
+        Map<String, Object> after = oneGame("""
+                SELECT *
+                FROM agent_goals
+                WHERE id=? AND agent_profile_id=?
+                """, goalId, id);
+        audit(principal, "AGENT_GOAL_STATUS", "agent:" + id + ":goal:" + goalId, before, after,
+                valueOr(body.reason(), "Updated agent goal status through Server CMS"));
+        return after;
     }
 
     @GetMapping("/{id}/policies")
@@ -393,4 +424,6 @@ public class AgentController {
             String targetRef,
             String parametersJson
     ) {}
+
+    record UpdateGoalStatus(String status, String reason) {}
 }
