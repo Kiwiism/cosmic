@@ -46,14 +46,17 @@ player, monster, drop, NPC, and reactor from the current perception snapshot.
 This targeting groundwork gives Agent CMS and future behavior modules a
 consistent view of what the agent could interact with next.
 
-Combat v1 starts with conservative basic attacks only. When combat policy is
+Combat v1 starts with conservative nearby monster combat. When combat policy is
 enabled, `ATTACK` and `GRIND` select the nearest matching alive monster, move
-toward the monster until inside conservative attack range, and then apply a
-basic non-skill hit through `MapleMap.damageMonster`. Boss monsters are blocked
-for now, and skills are intentionally not executed yet; this keeps target
-selection, approach movement, policy gates, cooldowns, damage, drops, and Agent
-CMS observability testable without imitating the full client attack packet
-pipeline.
+toward the monster until inside conservative attack range, and then prefer a
+learned attack skill only when the skill has no cooldown, does not consume HP,
+and the agent has enough MP. Skill combat consumes MP through the normal
+character stat path and applies capped server-side damage through
+`MapleMap.damageMonster`. If no safe skill is usable, the adapter falls back to
+a capped basic non-skill hit. Boss monsters are blocked for now; this keeps
+target selection, approach movement, policy gates, cooldowns, damage, drops,
+and Agent CMS observability testable without imitating the full client attack
+packet pipeline.
 
 ### `agent_scripts`
 
@@ -91,7 +94,8 @@ aliases such as `hp`, `mp`, and `potion`, then record `ITEM_READY`,
 `EQUIP_READY`, `NO_ITEM`, or `NO_EQUIP`; they do not consume items or equip gear
 yet. `SKILL` and `CAST` can inspect learned skills, resolve a skill by id or
 generic aliases such as `attack`, `buff`, `active`, and `passive`, then record
-`SKILL_READY` or `NO_SKILL`; they do not cast skills yet. `PARTY` can inspect
+`SKILL_READY` or `NO_SKILL`; direct skill intents still do not cast skills, but
+combat intents may use safe attack skills through the combat adapter. `PARTY` can inspect
 the agent's current party plus visible nearby player targets and records
 `PARTY_STATUS`, `PARTY_TARGET_READY`, `INVITE_TARGET_READY`, `ALREADY_PARTIED`,
 `PARTY_FULL`, or `NO_PARTY_TARGET`; it does not create, invite, join, leave, or

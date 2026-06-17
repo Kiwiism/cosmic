@@ -179,7 +179,9 @@ controller validation.
 10. **Basic grinding**
    - target nearby mobs
    - move into range
-   - basic attack
+   - use a conservative learned attack skill when the skill has no cooldown,
+     does not consume HP, and the agent has enough MP
+   - fall back to basic attack when no safe skill is usable
    - potion use
    - loot
    - approach visible drops before pickup instead of failing while still far
@@ -189,6 +191,9 @@ controller validation.
    - consume one normal HP/MP recovery item only for explicit recovery aliases
      (`hp`, `health`, `mp`, `mana`, `potion`); other item/equip intents remain
      readiness-only until a stricter item policy is added
+   - skill combat intentionally does not run the full client attack packet
+     pipeline yet; it applies bounded server-side monster damage and records the
+     selected skill, MP cost, damage cap, and target HP transition for audit
 
 11. **Economy**
     - trading

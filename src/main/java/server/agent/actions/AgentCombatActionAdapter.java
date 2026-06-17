@@ -1,6 +1,9 @@
 package server.agent.actions;
 
 import client.Character;
+import client.Character.SkillEntry;
+import client.Skill;
+import server.StatEffect;
 import server.agent.AgentActionStatus;
 import server.agent.AgentIntentCapability;
 import server.agent.AgentIntentType;
@@ -11,6 +14,7 @@ import tools.PacketCreator;
 
 import java.awt.Point;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Optional;
 
 public final class AgentCombatActionAdapter implements AgentActionAdapter {
@@ -18,6 +22,7 @@ public final class AgentCombatActionAdapter implements AgentActionAdapter {
     private static final int MAX_APPROACH_STEP_Y = 120;
     private static final int ATTACK_RANGE_SQ = 150 * 150;
     private static final int MAX_BASIC_ATTACK_DAMAGE = 50_000;
+    private static final int MAX_SKILL_ATTACK_DAMAGE = 120_000;
 
     @Override
     public AgentIntentCapability capability() {
@@ -86,6 +91,11 @@ public final class AgentCombatActionAdapter implements AgentActionAdapter {
             );
         }
 
+        Optional<Map.Entry<Skill, SkillEntry>> skill = selectAttackSkill(character);
+        if (skill.isPresent()) {
+            return skillAttack(context, visibleMonster, monster, skill.get());
+        }
+
         int beforeHp = monster.getHp();
         int damage = calculateBasicAttackDamage(character, beforeHp);
         if (damage <= 0) {
@@ -114,11 +124,150 @@ public final class AgentCombatActionAdapter implements AgentActionAdapter {
         );
     }
 
+    private AgentActionResult skillAttack(
+            AgentActionContext context,
+            AgentPerceptionSnapshot.AgentVisibleObject visibleMonster,
+            Monster monster,
+            Map.Entry<Skill, SkillEntry> selectedSkill
+    ) {
+        Character character = context.managed().character();
+        Skill skill = selectedSkill.getKey();
+        SkillEntry entry = selectedSkill.getValue();
+        StatEffect effect = effect(skill, entry);
+        if (effect == null) {
+            return basicAttackFallback(context, visibleMonster, monster, "Selected skill " + skill.getId() + " has no usable effect");
+        }
+
+        int mpBefore = character.getMp();
+        int beforeHp = monster.getHp();
+        int damage = calculateSkillAttackDamage(character, beforeHp, skill, entry, effect);
+        if (damage <= 0) {
+            return basicAttackFallback(context, visibleMonster, monster, "Selected skill " + skill.getId() + " did not calculate positive damage");
+        }
+
+        if (effect.getMpCon() > 0) {
+            character.addMP(-effect.getMpCon());
+        }
+
+        mapFor(character).broadcastMessage(character, PacketCreator.damageMonster(monster.getObjectId(), damage), true);
+        boolean applied = mapFor(character).damageMonster(character, monster, damage, animationDelay(skill));
+        int afterHp = monster.isAlive() ? monster.getHp() : 0;
+        String state = applied ? "SKILL_ATTACK_APPLIED" : "SKILL_ATTACK_REJECTED";
+        return new AgentActionResult(
+                applied ? AgentActionStatus.OK : AgentActionStatus.BLOCKED,
+                capability(),
+                applied
+                        ? "Used skill " + skill.getId() + " on " + monsterLabel(visibleMonster) + " for " + damage + " damage"
+                        : "Skill " + skill.getId() + " against " + monsterLabel(visibleMonster) + " was rejected by the map",
+                true,
+                applied,
+                false,
+                combatDetailsJson(
+                        context,
+                        visibleMonster,
+                        state,
+                        null,
+                        skillAttackDetailsJson(monster, beforeHp, afterHp, applied, damage, skill, entry, effect, mpBefore, character.getMp())
+                ),
+                java.time.Instant.now()
+        );
+    }
+
+    private AgentActionResult basicAttackFallback(
+            AgentActionContext context,
+            AgentPerceptionSnapshot.AgentVisibleObject visibleMonster,
+            Monster monster,
+            String fallbackReason
+    ) {
+        int beforeHp = monster.getHp();
+        int damage = calculateBasicAttackDamage(context.managed().character(), beforeHp);
+        if (damage <= 0) {
+            return AgentActionResult.blockedByRuntime(
+                    capability(),
+                    fallbackReason,
+                    combatDetailsJson(context, visibleMonster, "SKILL_FALLBACK_NO_DAMAGE", null, attackDetailsJson(monster, beforeHp, beforeHp, false, 0))
+            );
+        }
+
+        mapFor(context.managed().character()).broadcastMessage(context.managed().character(), PacketCreator.damageMonster(monster.getObjectId(), damage), true);
+        boolean applied = mapFor(context.managed().character()).damageMonster(context.managed().character(), monster, damage, (short) 0);
+        int afterHp = monster.isAlive() ? monster.getHp() : 0;
+        return new AgentActionResult(
+                applied ? AgentActionStatus.OK : AgentActionStatus.BLOCKED,
+                capability(),
+                "Fell back to basic attack after skill selection: " + fallbackReason,
+                true,
+                applied,
+                false,
+                combatDetailsJson(context, visibleMonster, "SKILL_FALLBACK_BASIC_ATTACK", null, attackDetailsJson(monster, beforeHp, afterHp, applied, damage)),
+                java.time.Instant.now()
+        );
+    }
+
     private int calculateBasicAttackDamage(Character character, int monsterHp) {
         int totalWatk = Math.max(1, character.getTotalWatk());
         int maxBaseDamage = Math.max(1, character.calculateMaxBaseDamage(totalWatk));
         int conservativeDamage = Math.max(1, maxBaseDamage / 2);
         return Math.min(Math.min(conservativeDamage, MAX_BASIC_ATTACK_DAMAGE), monsterHp);
+    }
+
+    private int calculateSkillAttackDamage(Character character, int monsterHp, Skill skill, SkillEntry entry, StatEffect effect) {
+        int attackCount = Math.max(1, effect.getAttackCount());
+        int skillDamagePercent = Math.max(100, effect.getDamage());
+        int totalAttack = Math.max(1, Math.max(character.getTotalWatk(), character.getTotalMagic()));
+        int baseDamage = Math.max(1, character.calculateMaxBaseDamage(totalAttack));
+        int conservativeDamage = Math.max(1, baseDamage * skillDamagePercent / 100);
+        int levelBonus = Math.max(0, entry.skillevel - 1) * 3;
+        int capped = Math.min(conservativeDamage + levelBonus, MAX_SKILL_ATTACK_DAMAGE);
+        int multiHitAdjusted = Math.max(1, capped / attackCount);
+        return Math.min(multiHitAdjusted, monsterHp);
+    }
+
+    private Optional<Map.Entry<Skill, SkillEntry>> selectAttackSkill(Character character) {
+        return character.getSkills().entrySet().stream()
+                .filter(entry -> entry.getValue().skillevel > 0)
+                .filter(entry -> isUsableAttackSkill(character, entry.getKey(), entry.getValue()))
+                .max(Comparator.comparingInt(entry -> attackSkillScore(entry.getKey(), entry.getValue())));
+    }
+
+    private boolean isUsableAttackSkill(Character character, Skill skill, SkillEntry entry) {
+        StatEffect effect = effect(skill, entry);
+        return effect != null
+                && isLikelyAttack(skill, effect)
+                && effect.getCooldown() <= 0
+                && effect.getHpCon() <= 0
+                && effect.getMpCon() <= character.getMp();
+    }
+
+    private boolean isLikelyAttack(Skill skill, StatEffect effect) {
+        return effect.getDamage() > 0;
+    }
+
+    private int attackSkillScore(Skill skill, SkillEntry entry) {
+        StatEffect effect = effect(skill, entry);
+        if (effect == null) {
+            return 0;
+        }
+        int damage = Math.max(1, effect.getDamage());
+        int attackCount = Math.max(1, effect.getAttackCount());
+        int mobCount = Math.max(1, effect.getMobCount());
+        return damage * attackCount * mobCount + entry.skillevel;
+    }
+
+    private StatEffect effect(Skill skill, SkillEntry entry) {
+        try {
+            return entry.skillevel <= 0 || entry.skillevel > skill.getMaxLevel() ? null : skill.getEffect(entry.skillevel);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private short animationDelay(Skill skill) {
+        return (short) clamp(skill.getAnimationTime(), 0, Short.MAX_VALUE);
+    }
+
+    private MapleMap mapFor(Character character) {
+        return character.getMap();
     }
 
     private Optional<AgentPerceptionSnapshot.AgentVisibleObject> selectMonster(AgentActionContext context) {
@@ -227,6 +376,40 @@ public final class AgentCombatActionAdapter implements AgentActionAdapter {
                 + "\"boss\":" + monster.isBoss() + ","
                 + "\"damage\":" + damage + ","
                 + "\"maxDamageCap\":" + MAX_BASIC_ATTACK_DAMAGE + ","
+                + "\"hpBefore\":" + beforeHp + ","
+                + "\"hpAfter\":" + afterHp + ","
+                + "\"applied\":" + applied
+                + "}";
+    }
+
+    private String skillAttackDetailsJson(
+            Monster monster,
+            int beforeHp,
+            int afterHp,
+            boolean applied,
+            int damage,
+            Skill skill,
+            SkillEntry entry,
+            StatEffect effect,
+            int mpBefore,
+            int mpAfter
+    ) {
+        return "{"
+                + "\"action\":\"SKILL_ATTACK\","
+                + "\"monsterObjectId\":" + monster.getObjectId() + ","
+                + "\"monsterId\":" + monster.getId() + ","
+                + "\"boss\":" + monster.isBoss() + ","
+                + "\"skillId\":" + skill.getId() + ","
+                + "\"skillLevel\":" + entry.skillevel + ","
+                + "\"skillAnimationTime\":" + skill.getAnimationTime() + ","
+                + "\"mpBefore\":" + mpBefore + ","
+                + "\"mpAfter\":" + mpAfter + ","
+                + "\"mpCon\":" + effect.getMpCon() + ","
+                + "\"effectDamage\":" + effect.getDamage() + ","
+                + "\"attackCount\":" + effect.getAttackCount() + ","
+                + "\"mobCount\":" + effect.getMobCount() + ","
+                + "\"damage\":" + damage + ","
+                + "\"maxDamageCap\":" + MAX_SKILL_ATTACK_DAMAGE + ","
                 + "\"hpBefore\":" + beforeHp + ","
                 + "\"hpAfter\":" + afterHp + ","
                 + "\"applied\":" + applied
