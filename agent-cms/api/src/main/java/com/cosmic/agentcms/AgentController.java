@@ -13,6 +13,7 @@ import java.security.Principal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -284,6 +285,39 @@ public class AgentController {
         audit(principal, "AGENT_SCRIPT_CREATE", "agent_script:" + created.get("id"), null, created,
                 valueOr(body.reason(), "Created agent script through Agent CMS"));
         return created;
+    }
+
+    @PostMapping("/scripts/preview")
+    Map<String, Object> previewScript(@Valid @RequestBody PreviewScript body) {
+        List<Map<String, Object>> steps = new ArrayList<>();
+        int lineNumber = 0;
+        for (String rawLine : valueOr(body.body(), "").split("\\R", -1)) {
+            lineNumber++;
+            String line = rawLine.strip();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            steps.add(previewScriptLine(lineNumber, line));
+        }
+
+        if (steps.isEmpty()) {
+            steps.add(previewDefaultIdle());
+        }
+
+        long unknown = steps.stream().filter(step -> "UNKNOWN".equals(step.get("intent"))).count();
+        long futureGated = steps.stream().filter(step -> Boolean.TRUE.equals(step.get("futureGated"))).count();
+        Map<String, Object> preview = new LinkedHashMap<>();
+        preview.put("steps", steps);
+        preview.put("stepCount", steps.size());
+        preview.put("unknownCount", unknown);
+        preview.put("futureGatedCount", futureGated);
+        preview.put("safeToSave", unknown == 0);
+        preview.put("message", unknown > 0
+                ? "Script contains unknown commands. They will be blocked by the runtime script fallback policy."
+                : futureGated > 0
+                ? "Script parses cleanly, but some intents need future runtime adapters or enabled capability policies."
+                : "Script parses cleanly.");
+        return preview;
     }
 
     @PutMapping("/scripts/{scriptId}")
@@ -722,6 +756,103 @@ public class AgentController {
         }
     }
 
+    private Map<String, Object> previewDefaultIdle() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("line", 0);
+        row.put("command", "IDLE");
+        row.put("intent", "IDLE");
+        row.put("argument", null);
+        row.put("durationMillis", 30_000);
+        row.put("capability", "SELF");
+        row.put("futureGated", false);
+        row.put("warning", "Empty script falls back to IDLE 30.");
+        return row;
+    }
+
+    private Map<String, Object> previewScriptLine(int lineNumber, String line) {
+        String[] parts = line.split("\\s+", 2);
+        String command = parts[0].toUpperCase(Locale.ROOT);
+        String argument = parts.length > 1 ? parts[1].strip() : "";
+        String intent = switch (command) {
+            case "IDLE" -> "IDLE";
+            case "WAIT" -> "WAIT";
+            case "SAY" -> "SAY";
+            case "ROAM" -> "ROAM";
+            case "FOLLOW", "FOLLOW_CHARACTER", "COMPANION" -> "FOLLOW_CHARACTER";
+            case "MOVE" -> "MOVE";
+            case "MAP", "MOVEMAP", "MOVE_TO_MAP" -> "MOVE_TO_MAP";
+            case "PORTAL", "USEPORTAL", "USE_PORTAL" -> "USE_PORTAL";
+            case "ATTACK", "KILL" -> "ATTACK";
+            case "GRIND", "TRAIN" -> "GRIND";
+            case "LOOT", "PICKUP" -> "LOOT";
+            case "NPC", "TALK" -> "NPC";
+            case "SHOP", "MERCHANT" -> "SHOP";
+            case "TRADE" -> "TRADE";
+            case "PARTY" -> "PARTY";
+            case "USEITEM", "USE_ITEM", "CONSUME" -> "USE_ITEM";
+            case "EQUIP" -> "EQUIP";
+            default -> "UNKNOWN";
+        };
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("line", lineNumber);
+        row.put("command", command);
+        row.put("intent", intent);
+        row.put("argument", argument.isBlank() ? null : argument);
+        row.put("durationMillis", switch (intent) {
+            case "IDLE", "WAIT" -> secondsToMillis(argument, 30_000);
+            default -> 0;
+        });
+        row.put("capability", capabilityForIntent(intent));
+        row.put("futureGated", futureGatedIntent(intent));
+        row.put("warning", warningForIntent(intent));
+        return row;
+    }
+
+    private long secondsToMillis(String value, long fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Math.max(1L, Long.parseLong(value.trim())) * 1000L;
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private String capabilityForIntent(String intent) {
+        return switch (intent) {
+            case "IDLE", "WAIT" -> "SELF";
+            case "SAY" -> "CHAT";
+            case "ROAM", "MOVE", "MOVE_TO_MAP", "FOLLOW_CHARACTER", "USE_PORTAL" -> "NAVIGATION";
+            case "ATTACK", "GRIND" -> "COMBAT";
+            case "LOOT" -> "LOOT";
+            case "NPC" -> "NPC";
+            case "SHOP" -> "SHOP";
+            case "TRADE" -> "TRADE";
+            case "PARTY" -> "PARTY";
+            case "USE_ITEM", "EQUIP" -> "INVENTORY";
+            default -> "SCRIPT";
+        };
+    }
+
+    private boolean futureGatedIntent(String intent) {
+        return List.of("ATTACK", "GRIND", "NPC", "SHOP", "TRADE", "PARTY", "USE_ITEM", "EQUIP", "UNKNOWN").contains(intent);
+    }
+
+    private String warningForIntent(String intent) {
+        if ("UNKNOWN".equals(intent)) {
+            return "Unknown command. Runtime will parse this as UNKNOWN and block unless script fallback is enabled.";
+        }
+        if (futureGatedIntent(intent)) {
+            return "Parsed, but this intent still needs a dedicated runtime adapter before it can affect gameplay.";
+        }
+        if (List.of("SAY", "ROAM", "MOVE", "MOVE_TO_MAP", "FOLLOW_CHARACTER", "USE_PORTAL", "LOOT").contains(intent)) {
+            return "Parsed. Execution still depends on the agent capability policy and cooldown settings.";
+        }
+        return "Parsed and supported by the current no-op/self runtime.";
+    }
+
     private void maybeUpsertCompanionRelationship(int agentProfileId, Map<String, Object> goal, Principal principal) {
         String goalType = String.valueOf(goal.getOrDefault("goal_type", "")).trim().toUpperCase();
         if (!List.of("FOLLOW", "FOLLOW_CHARACTER", "COMPANION", "HANG_AROUND").contains(goalType)) {
@@ -787,6 +918,8 @@ public class AgentController {
     record AgentCooldownPolicy(String key, String label, String description, long defaultMillis) {}
 
     record SaveScript(String name, Integer version, Boolean enabled, String scriptType, String body, String reason) {}
+
+    record PreviewScript(String body) {}
 
     record CreateGoal(
             String goalType,

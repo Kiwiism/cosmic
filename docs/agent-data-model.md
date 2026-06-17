@@ -69,6 +69,12 @@ cursor. This keeps multi-line scripts deterministic, wraps at the end of the
 script, and avoids adding extra state columns while the foundation is still
 evolving.
 
+Agent CMS includes a read-only script preview endpoint. The preview mirrors the
+current script command vocabulary and reports line number, parsed intent,
+capability, duration, and warnings for unknown or future-gated actions. It does
+not execute scripts and does not replace the server-side parser; it exists so
+staff can catch obvious mistakes before saving or assigning scripts.
+
 Intent dispatch also passes through a runtime cooldown gate after capability
 policy succeeds. Cooldowns can be configured globally or per-agent through
 `agent_policies` using `cooldown.<capability>.millis` or
