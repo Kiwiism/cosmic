@@ -69,7 +69,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 "Navigation preview found " + route.steps().size() + " loaded portal step(s); next "
                         + next.portalName() + " -> map " + next.toMapId()
                         + ". Gameplay movement remains disabled until the movement adapter is implemented.",
-                routeDetailsJson(route));
+                routeDetailsJson(route, proposedPortalAction(route.steps().get(0))));
     }
 
     private AgentActionResult previewFollowCharacter(AgentActionContext context) {
@@ -91,7 +91,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 return AgentActionResult.blockedByRuntime(
                         capability(),
                         "Follow target '" + target + "' is not visible and could not be found in online storage or character records.",
-                        followDetailsJson(context, target, null, null, null, "TARGET_UNKNOWN")
+                    followDetailsJson(context, target, null, null, null, "TARGET_UNKNOWN", proposedLocateAction(target))
                 );
             }
 
@@ -100,7 +100,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
             return AgentActionResult.blockedByRuntime(
                     capability(),
                     message,
-                    followDetailsJson(context, target, null, located.get(), route, "TARGET_LOCATED")
+                    followDetailsJson(context, target, null, located.get(), route, "TARGET_LOCATED", proposedFollowAction(context, located.get(), route))
             );
         }
 
@@ -109,7 +109,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 "Follow target " + matched.name() + " is visible at distanceSq " + matched.distanceSq()
                         + ". Gameplay movement remains disabled until the movement adapter is implemented.",
                 false,
-                followDetailsJson(context, target, matched, located.orElse(null), null, "TARGET_VISIBLE")
+                followDetailsJson(context, target, matched, located.orElse(null), null, "TARGET_VISIBLE", proposedApproachAction(context, matched))
         );
     }
 
@@ -179,6 +179,10 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
     }
 
     private String routeDetailsJson(AgentNavigationRoute route) {
+        return routeDetailsJson(route, "null");
+    }
+
+    private String routeDetailsJson(AgentNavigationRoute route, String proposedActionJson) {
         StringBuilder builder = new StringBuilder("{");
         builder.append("\"routeState\":\"").append(route.found() ? "READY" : "UNAVAILABLE").append("\",")
                 .append("\"world\":").append(route.world()).append(',')
@@ -189,6 +193,7 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 .append("\"message\":\"").append(escapeJson(route.message())).append("\",")
                 .append("\"stepCount\":").append(route.steps().size()).append(',')
                 .append("\"nextStep\":").append(route.steps().isEmpty() ? "null" : edgeJson(route.steps().get(0))).append(',')
+                .append("\"proposedAction\":").append(proposedActionJson).append(',')
                 .append("\"steps\":[");
         for (int i = 0; i < route.steps().size(); i++) {
             if (i > 0) {
@@ -220,7 +225,8 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
             AgentPerceptionSnapshot.AgentVisibleObject matched,
             AgentCharacterLocationLookup.LocatedCharacter located,
             AgentNavigationRoute route,
-            String state
+            String state,
+            String proposedActionJson
     ) {
         return "{"
                 + "\"followState\":\"" + state + "\","
@@ -232,7 +238,78 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 + "\"visiblePlayers\":" + context.perception().nearbyPlayers().size() + ","
                 + "\"target\":" + (matched == null ? "null" : visiblePlayerJson(matched)) + ","
                 + "\"locatedTarget\":" + (located == null ? "null" : locatedJson(located)) + ","
-                + "\"route\":" + (route == null ? "null" : routeDetailsJson(route))
+                + "\"proposedAction\":" + proposedActionJson + ","
+                + "\"route\":" + (route == null ? "null" : routeDetailsJson(route, proposedActionJson))
+                + "}";
+    }
+
+    private String proposedPortalAction(AgentPortalEdge next) {
+        return "{"
+                + "\"type\":\"USE_PORTAL\","
+                + "\"executable\":false,"
+                + "\"reason\":\"Movement execution is disabled; this is a dry-run proposal only\","
+                + "\"portalName\":\"" + escapeJson(next.portalName()) + "\","
+                + "\"fromMapId\":" + next.fromMapId() + ","
+                + "\"toMapId\":" + next.toMapId() + ","
+                + "\"position\":{\"x\":" + next.x() + ",\"y\":" + next.y() + "}"
+                + "}";
+    }
+
+    private String proposedLocateAction(String target) {
+        return "{"
+                + "\"type\":\"LOCATE_TARGET\","
+                + "\"executable\":false,"
+                + "\"reason\":\"Target is not known yet; locator must find an online or saved character location\","
+                + "\"target\":\"" + escapeJson(target) + "\""
+                + "}";
+    }
+
+    private String proposedFollowAction(
+            AgentActionContext context,
+            AgentCharacterLocationLookup.LocatedCharacter located,
+            AgentNavigationRoute route
+    ) {
+        if (route == null) {
+            return "{"
+                    + "\"type\":\"CHANGE_CONTEXT\","
+                    + "\"executable\":false,"
+                    + "\"reason\":\"Target is outside the current world or channel\","
+                    + "\"world\":" + located.world() + ","
+                    + "\"channel\":" + located.channel() + ","
+                    + "\"mapId\":" + located.mapId()
+                    + "}";
+        }
+        if (!route.found()) {
+            return "{"
+                    + "\"type\":\"ROUTE_UNAVAILABLE\","
+                    + "\"executable\":false,"
+                    + "\"reason\":\"" + escapeJson(route.message()) + "\","
+                    + "\"targetMapId\":" + located.mapId()
+                    + "}";
+        }
+        if (route.steps().isEmpty()) {
+            return "{"
+                    + "\"type\":\"SCAN_MAP_FOR_TARGET\","
+                    + "\"executable\":false,"
+                    + "\"reason\":\"Target is on the current map but not in nearby perception\","
+                    + "\"mapId\":" + context.perception().mapId()
+                    + "}";
+        }
+        return proposedPortalAction(route.steps().get(0));
+    }
+
+    private String proposedApproachAction(AgentActionContext context, AgentPerceptionSnapshot.AgentVisibleObject matched) {
+        int dx = matched.x() - context.perception().x();
+        int dy = matched.y() - context.perception().y();
+        return "{"
+                + "\"type\":\"APPROACH_TARGET\","
+                + "\"executable\":false,"
+                + "\"reason\":\"Movement execution is disabled; this is a dry-run proposal only\","
+                + "\"targetCharacterId\":" + matched.templateId() + ","
+                + "\"targetName\":\"" + escapeJson(matched.name()) + "\","
+                + "\"delta\":{\"x\":" + dx + ",\"y\":" + dy + "},"
+                + "\"targetPosition\":{\"x\":" + matched.x() + ",\"y\":" + matched.y() + "},"
+                + "\"distanceSq\":" + matched.distanceSq()
                 + "}";
     }
 
