@@ -22,6 +22,10 @@ public final class AgentRuntimeService {
     private static final Pattern COMBAT_STATE_PATTERN = Pattern.compile("\"combatState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern NPC_STATE_PATTERN = Pattern.compile("\"npcState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern SHOP_STATE_PATTERN = Pattern.compile("\"shopState\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern SHOP_ID_PATTERN = Pattern.compile("\"shop\"\\s*:\\s*\\{[^}]*\"shopId\"\\s*:\\s*(\\d+)");
+    private static final Pattern SHOP_PURCHASE_ITEM_ID_PATTERN = Pattern.compile("\"purchase\"\\s*:\\s*\\{[^}]*\"itemId\"\\s*:\\s*(\\d+)");
+    private static final Pattern SHOP_PURCHASE_QUANTITY_PATTERN = Pattern.compile("\"purchase\"\\s*:\\s*\\{[^}]*\"quantity\"\\s*:\\s*(-?\\d+)");
+    private static final Pattern SHOP_PURCHASE_MESO_DELTA_PATTERN = Pattern.compile("\"purchase\"\\s*:\\s*\\{[^}]*\"mesoDelta\"\\s*:\\s*(-?\\d+)");
     private static final Pattern INVENTORY_STATE_PATTERN = Pattern.compile("\"inventoryState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern SKILL_STATE_PATTERN = Pattern.compile("\"skillState\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern PARTY_STATE_PATTERN = Pattern.compile("\"partyState\"\\s*:\\s*\"([^\"]*)\"");
@@ -175,6 +179,7 @@ public final class AgentRuntimeService {
         rememberNavigationRoute(managed, intent, dispatchResult, perception);
         rememberCompanionRelationship(managed, intent, dispatchResult, perception);
         rememberLootEconomy(managed, intent, dispatchResult, perception);
+        rememberShopEconomy(managed, intent, dispatchResult, perception);
         rememberOutboundChat(managed, intent, dispatchResult);
         rememberTargetScan(managed, perception);
         rememberCombatPreview(managed, intent, dispatchResult, perception);
@@ -521,6 +526,44 @@ public final class AgentRuntimeService {
                         + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
                         + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
                         + "\"lootDetails\":" + nullableJsonObject(dispatchResult.detailsJson())
+                        + "}"
+        );
+    }
+
+    private void rememberShopEconomy(
+            AgentManagedCharacter managed,
+            AgentIntent intent,
+            AgentIntentDispatchResult dispatchResult,
+            AgentPerceptionSnapshot perception
+    ) throws SQLException {
+        if (intent.type() != AgentIntentType.SHOP
+                || !dispatchResult.gameplayMutated()
+                || dispatchResult.detailsJson() == null
+                || !"RECOVERY_BOUGHT".equals(extractString(SHOP_STATE_PATTERN, dispatchResult.detailsJson()))) {
+            return;
+        }
+
+        Integer itemId = extractNullableInteger(SHOP_PURCHASE_ITEM_ID_PATTERN, dispatchResult.detailsJson());
+        Integer quantity = extractNullableInteger(SHOP_PURCHASE_QUANTITY_PATTERN, dispatchResult.detailsJson());
+        Integer mesoDelta = extractNullableInteger(SHOP_PURCHASE_MESO_DELTA_PATTERN, dispatchResult.detailsJson());
+        Integer shopId = extractNullableInteger(SHOP_ID_PATTERN, dispatchResult.detailsJson());
+        repository.recordEconomyLedger(
+                managed.profileId(),
+                managed.session().id(),
+                "SHOP_BUY",
+                itemId,
+                quantity == null ? 0 : quantity,
+                mesoDelta == null ? 0L : mesoDelta,
+                "NPC_SHOP",
+                shopId == null ? null : shopId.longValue(),
+                null,
+                perception.world(),
+                perception.channel(),
+                perception.mapId(),
+                "{"
+                        + "\"intent\":\"" + escapeJson(intent.type().name()) + "\","
+                        + "\"argument\":\"" + escapeJson(intent.argument()) + "\","
+                        + "\"shopDetails\":" + nullableJsonObject(dispatchResult.detailsJson())
                         + "}"
         );
     }

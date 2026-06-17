@@ -1,6 +1,7 @@
 package server.agent.actions;
 
 import client.Character;
+import constants.inventory.ItemConstants;
 import server.ItemInformationProvider;
 import server.Shop;
 import server.ShopFactory;
@@ -49,6 +50,10 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
         ShopTarget shopTarget = target.get();
         AgentPerceptionSnapshot.AgentVisibleObject npc = shopTarget.npc();
         if (npc.distanceSq() <= SHOP_RANGE_SQ) {
+            if (isRecoveryTarget(context.intent().argument())) {
+                return buyRecoveryItem(context, shopTarget);
+            }
+
             String state = isRecoveryTarget(context.intent().argument()) ? "RECOVERY_SHOP_READY" : "SHOP_READY";
             return AgentActionResult.ok(
                     capability(),
@@ -72,6 +77,51 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 approach.dryRun(),
                 shopDetailsJson(context, npc, shopTarget.shop(), "APPROACHING_SHOP", approach.detailsJson()),
                 approach.completedAt()
+        );
+    }
+
+    private AgentActionResult buyRecoveryItem(AgentActionContext context, ShopTarget shopTarget) {
+        Character character = context.managed().character();
+        if (character == null || character.getClient() == null) {
+            return AgentActionResult.blockedByRuntime(
+                    capability(),
+                    "Cannot buy recovery items without an attached client",
+                    shopDetailsJson(context, shopTarget.npc(), shopTarget.shop(), "BUY_REJECTED", null, null)
+            );
+        }
+
+        Optional<ShopSelection> selection = selectRecoveryPurchase(shopTarget.shop(), context.intent().argument(), character.getMeso());
+        if (selection.isEmpty()) {
+            return AgentActionResult.blockedByRuntime(
+                    capability(),
+                    "No affordable recovery item is available in shop " + shopTarget.shop().getId(),
+                    shopDetailsJson(context, shopTarget.npc(), shopTarget.shop(), "NO_AFFORDABLE_RECOVERY", null, null)
+            );
+        }
+
+        ShopSelection purchase = selection.get();
+        int itemId = purchase.item().getItemId();
+        int beforeMeso = character.getMeso();
+        int beforeQuantity = character.getInventory(ItemConstants.getInventoryType(itemId)).countById(itemId);
+        shopTarget.shop().buy(character.getClient(), purchase.slot(), itemId, (short) 1);
+        int afterQuantity = character.getInventory(ItemConstants.getInventoryType(itemId)).countById(itemId);
+        int afterMeso = character.getMeso();
+        boolean bought = afterQuantity > beforeQuantity && afterMeso < beforeMeso;
+        String purchaseJson = purchaseJson(context, purchase, beforeQuantity, afterQuantity, beforeMeso, afterMeso, bought);
+
+        if (!bought) {
+            return AgentActionResult.blockedByRuntime(
+                    capability(),
+                    "Shop rejected recovery purchase for " + itemLabel(itemId),
+                    shopDetailsJson(context, shopTarget.npc(), shopTarget.shop(), "BUY_REJECTED", null, purchaseJson)
+            );
+        }
+
+        return AgentActionResult.ok(
+                capability(),
+                "Bought one recovery item " + itemLabel(itemId) + " from shop " + shopTarget.shop().getId(),
+                true,
+                shopDetailsJson(context, shopTarget.npc(), shopTarget.shop(), "RECOVERY_BOUGHT", null, purchaseJson)
         );
     }
 
@@ -163,6 +213,17 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
             String state,
             String movementJson
     ) {
+        return shopDetailsJson(context, npc, shop, state, movementJson, null);
+    }
+
+    private String shopDetailsJson(
+            AgentActionContext context,
+            AgentPerceptionSnapshot.AgentVisibleObject npc,
+            Shop shop,
+            String state,
+            String movementJson,
+            String purchaseJson
+    ) {
         return "{"
                 + "\"shopState\":\"" + state + "\","
                 + "\"intent\":\"" + context.intent().type().name() + "\","
@@ -174,6 +235,7 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 + "\"shopRangeSq\":" + SHOP_RANGE_SQ + ","
                 + "\"shop\":" + shopJson(context, shop) + ","
                 + "\"target\":" + (npc == null ? "null" : npcJson(npc)) + ","
+                + "\"purchase\":" + (purchaseJson == null ? "null" : purchaseJson) + ","
                 + "\"movement\":" + (movementJson == null ? "null" : movementJson)
                 + "}";
     }
@@ -235,6 +297,22 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 .anyMatch(item -> isMatchingRecoveryItem(item, target));
     }
 
+    private Optional<ShopSelection> selectRecoveryPurchase(Shop shop, String target, int meso) {
+        List<ShopItem> items = shop.getItems();
+        ShopSelection best = null;
+        for (short slot = 0; slot < items.size(); slot++) {
+            ShopItem item = items.get(slot);
+            if (!isMatchingRecoveryItem(item, target) || item.getPrice() <= 0 || item.getPitch() > 0 || item.getPrice() > meso) {
+                continue;
+            }
+            ShopSelection candidate = new ShopSelection(slot, item);
+            if (best == null || item.getPrice() < best.item().getPrice()) {
+                best = candidate;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
     private String recoveryItemsJson(AgentActionContext context, Shop shop) {
         Character character = context.managed().character();
         int meso = character == null ? 0 : character.getMeso();
@@ -289,6 +367,39 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
                 + "}";
     }
 
+    private String purchaseJson(
+            AgentActionContext context,
+            ShopSelection purchase,
+            int beforeQuantity,
+            int afterQuantity,
+            int beforeMeso,
+            int afterMeso,
+            boolean bought
+    ) {
+        ShopItem item = purchase.item();
+        return "{"
+                + "\"slot\":" + purchase.slot() + ","
+                + "\"itemId\":" + item.getItemId() + ","
+                + "\"name\":\"" + escapeJson(ItemInformationProvider.getInstance().getName(item.getItemId())) + "\","
+                + "\"quantity\":1,"
+                + "\"price\":" + item.getPrice() + ","
+                + "\"mesoDelta\":" + (afterMeso - beforeMeso) + ","
+                + "\"beforeMeso\":" + beforeMeso + ","
+                + "\"afterMeso\":" + afterMeso + ","
+                + "\"beforeQuantity\":" + beforeQuantity + ","
+                + "\"afterQuantity\":" + afterQuantity + ","
+                + "\"bought\":" + bought + ","
+                + "\"world\":" + context.perception().world() + ","
+                + "\"channel\":" + context.perception().channel() + ","
+                + "\"mapId\":" + context.perception().mapId()
+                + "}";
+    }
+
+    private String itemLabel(int itemId) {
+        String name = ItemInformationProvider.getInstance().getName(itemId);
+        return (name == null || name.isBlank()) ? String.valueOf(itemId) : name + " (" + itemId + ")";
+    }
+
     private String npcJson(AgentPerceptionSnapshot.AgentVisibleObject npc) {
         return "{"
                 + "\"objectId\":" + npc.objectId() + ","
@@ -329,5 +440,8 @@ public final class AgentShopActionAdapter implements AgentActionAdapter {
     }
 
     private record ShopTarget(AgentPerceptionSnapshot.AgentVisibleObject npc, Shop shop) {
+    }
+
+    private record ShopSelection(short slot, ShopItem item) {
     }
 }

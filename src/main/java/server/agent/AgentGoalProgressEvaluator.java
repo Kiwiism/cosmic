@@ -43,7 +43,8 @@ public final class AgentGoalProgressEvaluator {
                     dispatchResult,
                     "Requested shop is in interaction range",
                     "\"shopState\":\"SHOP_READY\"",
-                    "\"shopState\":\"RECOVERY_SHOP_READY\""
+                    "\"shopState\":\"RECOVERY_SHOP_READY\"",
+                    "\"shopState\":\"RECOVERY_BOUGHT\""
             );
             default -> AgentGoalProgressDecision.running("Goal requires a future executor before completion can be proven");
         };

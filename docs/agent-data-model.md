@@ -43,7 +43,8 @@ schema migration for each new diagnostic field. Terminal checks use post-action
 knowledge when gameplay mutates, so level and item-use goals can complete on the
 same tick that changes character state. Simple one-shot goals also complete when
 their adapter returns a proven applied or ready state, such as `PICKED_UP`,
-`RECOVERY_USED`, `NPC_READY`, `SHOP_READY`, or `RECOVERY_SHOP_READY`.
+`RECOVERY_USED`, `NPC_READY`, `SHOP_READY`, `RECOVERY_SHOP_READY`, or
+`RECOVERY_BOUGHT`.
 
 Each pilot tick also records a `TARGET_SCAN` memory event with the nearest
 player, monster, drop, NPC, and reactor from the current perception snapshot.
@@ -98,7 +99,11 @@ open scripts or advance dialogs yet. `SHOP` can select and approach a visible
 NPC that has a database-backed shop, then records `SHOP_READY` once inside shop
 range; `SHOP hp`, `SHOP mp`, `SHOP potion`, and `SHOP recovery` prefer visible
 shops with matching HP/MP recovery items and record affordable candidate details
-as `RECOVERY_SHOP_READY`. It does not open the shop or buy/sell items yet.
+as `RECOVERY_SHOP_READY` while approaching. Once inside shop range these
+recovery aliases buy one affordable matching recovery item through the normal
+server shop path, record `RECOVERY_BOUGHT`, and write the purchase to
+`agent_economy_ledger`. Other shop intents remain readiness-only until stricter
+buy/sell policies are added.
 `USEITEM` and `EQUIP` can inspect the agent's current inventory, resolve an item by id/name or simple
 aliases such as `hp`, `mp`, and `potion`, then record `ITEM_READY`,
 `EQUIP_READY`, `NO_ITEM`, or `NO_EQUIP`; they do not consume items or equip gear
