@@ -32,6 +32,10 @@ public final class AgentRuntimeService {
         this.spawnPlanner = new AgentSpawnPlanner(agentRepository, controlGuard);
     }
 
+    AgentRuntimeRepository repository() {
+        return repository;
+    }
+
     public AgentControlDecision canControl(AgentProfile profile) {
         return controlGuard.canRuntimeControl(profile);
     }

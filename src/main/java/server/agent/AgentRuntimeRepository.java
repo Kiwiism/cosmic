@@ -136,6 +136,21 @@ public final class AgentRuntimeRepository {
         }
     }
 
+    public long countSessionActions(long runtimeSessionId, String actionType) throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT COUNT(*) AS action_count
+                     FROM agent_action_logs
+                     WHERE runtime_session_id = ? AND action_type = ?
+                     """)) {
+            statement.setLong(1, runtimeSessionId);
+            statement.setString(2, actionType);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getLong("action_count") : 0L;
+            }
+        }
+    }
+
     public void remember(AgentMemoryEvent event) throws SQLException {
         try (Connection connection = DatabaseConnection.getConnection();
              PreparedStatement statement = connection.prepareStatement("""

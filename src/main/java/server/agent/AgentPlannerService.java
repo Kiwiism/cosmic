@@ -10,17 +10,20 @@ public final class AgentPlannerService {
     private final AgentScriptRunner scriptRunner;
     private final AgentScriptRepository scriptRepository;
     private final AgentNavigationGraphService navigationGraphService;
+    private final AgentRuntimeRepository runtimeRepository;
 
     public AgentPlannerService(
             AgentGoalRepository goalRepository,
             AgentScriptRunner scriptRunner,
             AgentScriptRepository scriptRepository,
-            AgentNavigationGraphService navigationGraphService
+            AgentNavigationGraphService navigationGraphService,
+            AgentRuntimeRepository runtimeRepository
     ) {
         this.goalRepository = goalRepository;
         this.scriptRunner = scriptRunner;
         this.scriptRepository = scriptRepository;
         this.navigationGraphService = navigationGraphService;
+        this.runtimeRepository = runtimeRepository;
     }
 
     public AgentPlan plan(AgentManagedCharacter managed, AgentPerceptionSnapshot perception, AgentKnowledgeSnapshot knowledge) throws SQLException {
@@ -28,7 +31,7 @@ public final class AgentPlannerService {
         if (goal.isPresent()) {
             return planGoal(goal.get(), perception, knowledge);
         }
-        return planScriptFallback(managed.profile());
+        return planScriptFallback(managed.profile(), managed.session());
     }
 
     private AgentPlan planGoal(AgentGoal goal, AgentPerceptionSnapshot perception, AgentKnowledgeSnapshot knowledge) {
@@ -57,11 +60,21 @@ public final class AgentPlannerService {
         return new AgentPlan(intent, goal, "agent_goals:" + goal.id(), reason);
     }
 
-    private AgentPlan planScriptFallback(AgentProfile profile) throws SQLException {
+    private AgentPlan planScriptFallback(AgentProfile profile, AgentRuntimeSession session) throws SQLException {
         ScriptBody scriptBody = resolveScriptBody(profile);
         List<AgentIntent> intents = scriptRunner.parse(scriptBody.body());
-        AgentIntent intent = intents.get(0);
-        return new AgentPlan(intent, null, scriptBody.source(), "No active goal; using " + scriptBody.source());
+        int index = nextScriptIndex(session, intents.size());
+        AgentIntent intent = intents.get(index);
+        String source = scriptBody.source() + "#step " + (index + 1) + "/" + intents.size();
+        return new AgentPlan(intent, null, source, "No active goal; using " + source);
+    }
+
+    private int nextScriptIndex(AgentRuntimeSession session, int scriptLength) throws SQLException {
+        if (session == null || scriptLength <= 1) {
+            return 0;
+        }
+        long previousPlans = runtimeRepository.countSessionActions(session.id(), "INTENT_PLAN");
+        return (int) (previousPlans % scriptLength);
     }
 
     private String bestVisibleMonster(AgentPerceptionSnapshot perception) {

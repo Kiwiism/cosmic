@@ -56,6 +56,12 @@ verbs `ROAM`, `ATTACK`, `GRIND`, `NPC`, `SHOP`, `TRADE`, `PARTY`, `USEITEM`,
 and `EQUIP` are parsed and audited, but blocked until their dedicated systems
 are implemented.
 
+When an agent has no active goal, script fallback advances through parsed script
+lines using the current runtime session's previous `INTENT_PLAN` count as the
+cursor. This keeps multi-line scripts deterministic, wraps at the end of the
+script, and avoids adding extra state columns while the foundation is still
+evolving.
+
 When `USE_AGENT_RUNTIME` is enabled, the runtime starts a maintenance scheduler
 that ticks already-entered agent characters every 5 seconds. The
 scheduler does not create sessions, enter characters, or spawn agents by itself;
