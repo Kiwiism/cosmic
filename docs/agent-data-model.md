@@ -82,6 +82,12 @@ allow navigation while still slowing portal/follow attempts, or allow chat while
 rate-limiting SAY intents. Per-agent cooldown rows override global rows; unset
 rows fall back to the server defaults.
 
+The Agent CMS runtime page also exposes a lightweight summary endpoint for
+operational checks: open sessions, stale sessions, 24-hour action status counts,
+cooldown blocks, and the latest blocked or failed actions. This is intentionally
+read-only and uses existing runtime tables so it can be expanded without adding
+new server coupling.
+
 When `USE_AGENT_RUNTIME` is enabled, the runtime starts a maintenance scheduler
 that ticks already-entered agent characters every 5 seconds. The
 scheduler does not create sessions, enter characters, or spawn agents by itself;

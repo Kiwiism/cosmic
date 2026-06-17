@@ -105,13 +105,19 @@ function Agents(){
 }
 
 function Runtime(){
- const [q,setQ]=useState(""),[sessions,setSessions]=useState<any[]>([]),[error,setError]=useState("");
- useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/runtime/sessions?q=${encodeURIComponent(q)}`).then(setSessions).catch(x=>setError((x as Error).message))},160);return()=>clearTimeout(timer)},[q]);
+ const [q,setQ]=useState(""),[sessions,setSessions]=useState<any[]>([]),[summary,setSummary]=useState<any|null>(null),[error,setError]=useState("");
+ useEffect(()=>{const timer=setTimeout(()=>{api<any[]>(`/api/agents/runtime/sessions?q=${encodeURIComponent(q)}`).then(setSessions).catch(x=>setError((x as Error).message));api<any>("/api/agents/runtime/summary").then(setSummary).catch(()=>setSummary(null))},160);return()=>clearTimeout(timer)},[q]);
  const active=sessions.filter(row=>!row.ended_at).length;
+ const sessionSummary=summary?.sessions||{},actionSummary=summary?.actions24h||{},problems=summary?.latestProblems||[];
  return <><article className="panel intro"><Title title="Runtime sessions" sub="Live and historical runtime shells. This is read-only observability for agent lifecycle state."/></article>
-  <div className="metrics compact-metrics"><article><RadioTower/><small>Open sessions</small><strong>{active}</strong></article><article><Activity/><small>Loaded rows</small><strong>{sessions.length}</strong></article></div>
+  <div className="metrics compact-metrics"><article><RadioTower/><small>Open sessions</small><strong>{sessionSummary.open_sessions??active}</strong></article><article><Activity/><small>Stale sessions</small><strong>{sessionSummary.stale_sessions??0}</strong></article><article><Activity/><small>Blocked actions 24h</small><strong>{actionSummary.blocked_actions??0}</strong></article><article><Activity/><small>Failed actions 24h</small><strong>{actionSummary.failed_actions??0}</strong></article><article><Activity/><small>Cooldown blocks 24h</small><strong>{actionSummary.cooldown_blocks??0}</strong></article><article><Activity/><small>Loaded rows</small><strong>{sessions.length}</strong></article></div>
   <PageToolbar query={q} onQueryChange={setQ} placeholder="Search agent, character, state or task"/>
   {error&&<div className="error">{error}</div>}
+  <section className="panel"><Title title="Latest blocked or failed actions" sub="Newest runtime problems across all agents."/>
+   <div className="ledger-list">{problems.map((row:any)=><article className="ledger-card" key={row.id}>
+    <div><strong>{row.display_name||row.character_name}</strong><small>{row.action_type} | {row.created_at}</small></div>
+    <span className="inactive-state">{row.status}</span><p>{row.message}</p>
+   </article>)}</div>{!problems.length&&<p className="muted">No blocked or failed actions recorded yet.</p>}</section>
   <section className="panel"><Title title="Session ledger" sub="Newest runtime sessions first."/>
    <div className="ledger-list">{sessions.map(session=><article className="ledger-card" key={session.id}>
     <div><strong>{session.display_name||session.character_name}</strong><small>{session.account_name} {"->"} {session.character_name}</small></div>

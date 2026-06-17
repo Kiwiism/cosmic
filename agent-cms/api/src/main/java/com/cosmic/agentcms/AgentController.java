@@ -562,6 +562,44 @@ public class AgentController {
                 """, like(q), like(q), like(q), like(q), like(q));
     }
 
+    @GetMapping("/runtime/summary")
+    Map<String, Object> runtimeSummary() {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("sessions", oneSummary("""
+                SELECT
+                    SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END) AS open_sessions,
+                    SUM(CASE
+                        WHEN ended_at IS NULL
+                         AND COALESCE(last_tick_at, started_at) < DATE_SUB(NOW(), INTERVAL 2 MINUTE)
+                        THEN 1 ELSE 0 END) AS stale_sessions,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) AS failed_sessions
+                FROM agent_runtime_sessions
+                """));
+        summary.put("actions24h", oneSummary("""
+                SELECT
+                    COUNT(*) AS total_actions,
+                    SUM(CASE WHEN status = 'OK' THEN 1 ELSE 0 END) AS ok_actions,
+                    SUM(CASE WHEN status = 'BLOCKED' THEN 1 ELSE 0 END) AS blocked_actions,
+                    SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed_actions,
+                    SUM(CASE
+                        WHEN status = 'BLOCKED'
+                         AND details_json LIKE '%"cooldownState":"BLOCKED"%'
+                        THEN 1 ELSE 0 END) AS cooldown_blocks
+                FROM agent_action_logs
+                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                """));
+        summary.put("latestProblems", gameJdbc.queryForList("""
+                SELECT l.*, p.display_name, c.name character_name
+                FROM agent_action_logs l
+                JOIN agent_profiles p ON p.id = l.agent_profile_id
+                JOIN characters c ON c.id = p.character_id
+                WHERE l.status IN ('BLOCKED', 'FAILED')
+                ORDER BY l.id DESC
+                LIMIT 10
+                """));
+        return summary;
+    }
+
     @GetMapping("/social/relationships")
     List<Map<String, Object>> relationships(@RequestParam(defaultValue = "") String q) {
         return gameJdbc.queryForList("""
@@ -638,6 +676,11 @@ public class AgentController {
     private Map<String, Object> optionalGame(String sql, Object... args) {
         List<Map<String, Object>> rows = gameJdbc.queryForList(sql, args);
         return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    private Map<String, Object> oneSummary(String sql) {
+        List<Map<String, Object>> rows = gameJdbc.queryForList(sql);
+        return rows.isEmpty() ? Map.of() : rows.getFirst();
     }
 
     private String like(String value) {
