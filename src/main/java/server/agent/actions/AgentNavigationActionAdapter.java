@@ -1,6 +1,7 @@
 package server.agent.actions;
 
 import constants.id.MapId;
+import client.Character;
 import server.agent.AgentCharacterLocationLookup;
 import server.agent.AgentIntentCapability;
 import server.agent.AgentIntentType;
@@ -12,9 +13,14 @@ import server.maps.MapleMap;
 import server.maps.Portal;
 
 import java.awt.Point;
+import java.util.Comparator;
 import java.util.Optional;
 
 public final class AgentNavigationActionAdapter implements AgentActionAdapter {
+    private static final int MAX_LOCAL_STEP_X = 220;
+    private static final int MAX_LOCAL_STEP_Y = 140;
+    private static final int ARRIVAL_DISTANCE_SQ = 80 * 80;
+
     private final AgentNavigationGraphService navigationGraphService;
     private final AgentCharacterLocationLookup characterLocationLookup;
 
@@ -42,6 +48,12 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
         }
         if (type == AgentIntentType.USE_PORTAL) {
             return executeNamedPortal(context);
+        }
+        if (type == AgentIntentType.MOVE) {
+            return executeLocalMove(context);
+        }
+        if (type == AgentIntentType.ROAM) {
+            return executeRoam(context);
         }
         return AgentActionResult.blockedByRuntime(capability(),
                 type + " reached the navigation adapter, but movement execution is not implemented yet");
@@ -110,13 +122,45 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
             );
         }
 
-        return AgentActionResult.ok(
+        AgentActionResult approach = moveTowardVisibleObject(context, matched, "FOLLOW_CHARACTER", matched.name());
+        return new AgentActionResult(
+                approach.status(),
                 capability(),
-                "Follow target " + matched.name() + " is visible at distanceSq " + matched.distanceSq()
-                        + ". Fine-grained in-map approach movement is not implemented yet.",
-                false,
-                followDetailsJson(context, target, matched, located.orElse(null), null, "TARGET_VISIBLE", proposedApproachAction(context, matched))
+                approach.gameplayMutated()
+                        ? "Moved toward visible follow target " + matched.name()
+                        : "Follow target " + matched.name() + " is already nearby",
+                approach.policyAllowed(),
+                approach.gameplayMutated(),
+                approach.dryRun(),
+                followDetailsJson(context, target, matched, located.orElse(null), null, "TARGET_VISIBLE", proposedApproachAction(context, matched)),
+                approach.completedAt()
         );
+    }
+
+    private AgentActionResult executeLocalMove(AgentActionContext context) {
+        Point target = parsePoint(context.intent().argument());
+        if (target == null) {
+            return AgentActionResult.blockedByRuntime(capability(), "MOVE requires coordinates like '100 200' or '100,200'");
+        }
+        return moveTowardPoint(context, target, "MOVE", "requested coordinates");
+    }
+
+    private AgentActionResult executeRoam(AgentActionContext context) {
+        MapleMap currentMap = currentMap(context);
+        if (currentMap == null) {
+            return AgentActionResult.blockedByRuntime(capability(), "Cannot roam without an attached map");
+        }
+
+        Optional<Portal> nearestPortal = currentMap.getPortals().stream()
+                .filter(this::isSafeTraversalPortal)
+                .filter(portal -> portal.getPosition() != null)
+                .min(Comparator.comparingLong(portal -> distanceSq(context.managed().character().getPosition(), portal.getPosition())));
+        if (nearestPortal.isEmpty()) {
+            return AgentActionResult.blockedByRuntime(capability(), "No safe traversal portal is available for roam movement");
+        }
+
+        Portal portal = nearestPortal.get();
+        return moveTowardPoint(context, portal.getPosition(), "ROAM", "nearest safe portal " + portal.getName());
     }
 
     private AgentActionResult executeNamedPortal(AgentActionContext context) {
@@ -202,6 +246,72 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
 
     private MapleMap currentMap(AgentActionContext context) {
         return context.managed().character() == null ? null : context.managed().character().getMap();
+    }
+
+    private AgentActionResult moveTowardVisibleObject(
+            AgentActionContext context,
+            AgentPerceptionSnapshot.AgentVisibleObject target,
+            String action,
+            String targetLabel
+    ) {
+        return moveTowardPoint(context, new Point(target.x(), target.y()), action, targetLabel);
+    }
+
+    private AgentActionResult moveTowardPoint(AgentActionContext context, Point target, String action, String targetLabel) {
+        MapleMap currentMap = currentMap(context);
+        Character character = context.managed().character();
+        if (currentMap == null || character == null) {
+            return AgentActionResult.blockedByRuntime(capability(), "Cannot move without an attached map");
+        }
+
+        Point start = character.getPosition();
+        long distanceSq = distanceSq(start, target);
+        if (distanceSq <= ARRIVAL_DISTANCE_SQ) {
+            return AgentActionResult.ok(capability(),
+                    action + " target is already nearby: " + targetLabel,
+                    false,
+                    localMoveDetailsJson(context, start, start, target, action, targetLabel, "ALREADY_NEARBY"));
+        }
+
+        Point next = boundedStep(start, target);
+        Point grounded = currentMap.getGroundBelow(next);
+        Point destination = grounded == null ? next : grounded;
+        currentMap.movePlayer(character, destination);
+        return AgentActionResult.ok(capability(),
+                action + " moved from " + pointLabel(start) + " toward " + targetLabel + " at " + pointLabel(target),
+                true,
+                localMoveDetailsJson(context, start, destination, target, action, targetLabel, "MOVED"));
+    }
+
+    private Point boundedStep(Point start, Point target) {
+        int dx = clamp(target.x - start.x, -MAX_LOCAL_STEP_X, MAX_LOCAL_STEP_X);
+        int dy = clamp(target.y - start.y, -MAX_LOCAL_STEP_Y, MAX_LOCAL_STEP_Y);
+        return new Point(start.x + dx, start.y + dy);
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private long distanceSq(Point a, Point b) {
+        long dx = (long) a.x - b.x;
+        long dy = (long) a.y - b.y;
+        return dx * dx + dy * dy;
+    }
+
+    private Point parsePoint(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String[] parts = value.trim().split("[,\\s]+");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return new Point(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private boolean isSafeTraversalPortal(Portal portal) {
@@ -392,6 +502,35 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
                 + "}";
     }
 
+    private String localMoveDetailsJson(
+            AgentActionContext context,
+            Point from,
+            Point to,
+            Point target,
+            String action,
+            String targetLabel,
+            String state
+    ) {
+        return "{"
+                + "\"movementState\":\"" + state + "\","
+                + "\"action\":\"" + escapeJson(action) + "\","
+                + "\"targetLabel\":\"" + escapeJson(targetLabel) + "\","
+                + "\"world\":" + context.managed().client().getWorld() + ","
+                + "\"channel\":" + context.managed().client().getChannel() + ","
+                + "\"mapId\":" + context.managed().character().getMapId() + ","
+                + "\"from\":{\"x\":" + from.x + ",\"y\":" + from.y + "},"
+                + "\"to\":{\"x\":" + to.x + ",\"y\":" + to.y + "},"
+                + "\"target\":{\"x\":" + target.x + ",\"y\":" + target.y + "},"
+                + "\"stepLimit\":{\"x\":" + MAX_LOCAL_STEP_X + ",\"y\":" + MAX_LOCAL_STEP_Y + "},"
+                + "\"distanceSqBefore\":" + distanceSq(from, target) + ","
+                + "\"distanceSqAfter\":" + distanceSq(to, target)
+                + "}";
+    }
+
+    private String pointLabel(Point point) {
+        return "(" + point.x + "," + point.y + ")";
+    }
+
     private String addResultMap(String json, int beforeMapId, int afterMapId) {
         if (json == null || json.length() < 2 || !json.endsWith("}")) {
             return json;
@@ -448,8 +587,8 @@ public final class AgentNavigationActionAdapter implements AgentActionAdapter {
         int dy = matched.y() - context.perception().y();
         return "{"
                 + "\"type\":\"APPROACH_TARGET\","
-                + "\"executable\":false,"
-                + "\"reason\":\"Fine-grained in-map approach movement is not implemented yet\","
+                + "\"executable\":true,"
+                + "\"reason\":\"Bounded in-map approach movement is available\","
                 + "\"targetCharacterId\":" + matched.templateId() + ","
                 + "\"targetName\":\"" + escapeJson(matched.name()) + "\","
                 + "\"delta\":{\"x\":" + dx + ",\"y\":" + dy + "},"
