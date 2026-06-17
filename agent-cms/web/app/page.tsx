@@ -13,6 +13,7 @@ const nav:readonly CmsNavItem<View>[]=[
  {key:"social",label:"Social",icon:UsersRound},
  {key:"economy",label:"Economy",icon:Coins}
 ];
+const behaviorPresets=["default","GRINDER","LOOTER","COMPANION","TOWN_IDLER","ROAMER"];
 
 export default function App(){
  const [auth,setAuth]=useState<boolean|null>(null),[setup,setSetup]=useState(false),[startupError,setStartupError]=useState("");
@@ -82,8 +83,8 @@ function Agents(){
   {selected&&<div className="agent-detail"><section className="panel"><Title title={`${selected.display_name||selected.character_name} profile`} sub="These settings are persisted in the game database agent tables and picked up by Cosmic after restart."/>
    <div className="value-grid agent-edit"><label><small>Enabled</small><select className="edit" value={String(Boolean(selected.enabled))} onChange={e=>setSelected({...selected,enabled:e.target.value==="true"})}><option value="false">false</option><option value="true">true</option></select></label>
     <label><small>Display name</small><input className="edit" value={selected.display_name||""} onChange={e=>setSelected({...selected,display_name:e.target.value})}/></label>
-    <label><small>Default mode</small><input className="edit" value={selected.default_mode||"IDLE"} onChange={e=>setSelected({...selected,default_mode:e.target.value})}/></label>
-    <label><small>Behavior profile</small><input className="edit" value={selected.behavior_profile||"default"} onChange={e=>setSelected({...selected,behavior_profile:e.target.value})}/></label>
+    <label><small>Default mode</small><select className="edit" value={selected.default_mode||"IDLE"} onChange={e=>setSelected({...selected,default_mode:e.target.value})}><option>IDLE</option><option>ROAM</option><option>GRIND</option><option>LOOT</option><option>FOLLOW</option></select></label>
+    <label><small>Behavior profile</small><select className="edit" value={selected.behavior_profile||"default"} onChange={e=>setSelected({...selected,behavior_profile:e.target.value})}>{behaviorPresets.map(preset=><option key={preset}>{preset}</option>)}</select></label>
     <label><small>Personality profile</small><input className="edit" value={selected.personality_profile||"default"} onChange={e=>setSelected({...selected,personality_profile:e.target.value})}/></label>
     <label><small>Script name</small><input className="edit" list="agent-script-names" value={selected.script_name||""} onChange={e=>setSelected({...selected,script_name:e.target.value})}/><datalist id="agent-script-names">{scripts.map(script=><option key={script.id} value={script.name}/>)}</datalist></label>
     <label><small>LLM enabled</small><select className="edit" value={String(Boolean(selected.llm_enabled))} onChange={e=>setSelected({...selected,llm_enabled:e.target.value==="true"})}><option value="false">false</option><option value="true">true</option></select></label></div>
