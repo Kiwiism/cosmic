@@ -43,9 +43,8 @@ schema migration for each new diagnostic field.
 
 Each pilot tick also records a `TARGET_SCAN` memory event with the nearest
 player, monster, drop, NPC, and reactor from the current perception snapshot.
-This is read-only targeting groundwork: it gives Agent CMS and future behavior
-modules a consistent view of what the agent could interact with next without
-making combat, NPC, or reactor actions executable yet.
+This targeting groundwork gives Agent CMS and future behavior modules a
+consistent view of what the agent could interact with next.
 
 Combat v1 starts with conservative basic attacks only. When combat policy is
 enabled, `ATTACK` and `GRIND` select the nearest matching alive monster, move
@@ -82,9 +81,11 @@ packets. Local movement records `MOVED`, `ALREADY_NEARBY`, `STUCK`, or
 reduced the remaining distance. `SAY` broadcasts normal map chat when policy
 allows it, while blocking command-like text. `LOOT` can pick nearby visible drops
 through the normal server pickup path when policy allows it, and successful
-pickups are written to `agent_economy_ledger`. The future-facing verbs `ATTACK`,
-`GRIND`, `NPC`, `SHOP`, `TRADE`, `PARTY`, `USEITEM`, and `EQUIP` are parsed and
-audited, but blocked until their dedicated systems are implemented.
+pickups are written to `agent_economy_ledger`. `NPC` can select and approach a
+visible NPC, then records `NPC_READY` once inside interaction range; it does not
+open scripts or advance dialogs yet. The future-facing verbs `SHOP`, `TRADE`,
+`PARTY`, `USEITEM`, and `EQUIP` are parsed and audited, but blocked until their
+dedicated systems are implemented.
 
 When an agent has no active goal, script fallback advances through parsed script
 lines using the current runtime session's previous `INTENT_PLAN` count as the

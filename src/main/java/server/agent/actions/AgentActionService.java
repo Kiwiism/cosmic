@@ -16,7 +16,7 @@ public final class AgentActionService {
         register(new AgentNavigationActionAdapter(navigationGraphService, characterLocationLookup));
         register(new AgentLootActionAdapter());
         register(new AgentCombatActionAdapter());
-        register(new AgentRuntimeBlockedActionAdapter(AgentIntentCapability.NPC, "NPC"));
+        register(new AgentNpcActionAdapter());
         register(new AgentRuntimeBlockedActionAdapter(AgentIntentCapability.SHOP, "Shop"));
         register(new AgentRuntimeBlockedActionAdapter(AgentIntentCapability.TRADE, "Trade"));
         register(new AgentRuntimeBlockedActionAdapter(AgentIntentCapability.PARTY, "Party"));
