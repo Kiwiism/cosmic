@@ -425,10 +425,65 @@ public class AgentController {
     @GetMapping("/{id}/policies")
     List<Map<String, Object>> policies(@PathVariable int id) {
         agent(id);
+        return capabilityPolicyRows(id);
+    }
+
+    @GetMapping("/policies/global")
+    List<Map<String, Object>> globalPolicies() {
+        return capabilityPolicyRows(0);
+    }
+
+    @PutMapping("/policies/global/{key}")
+    Map<String, Object> updateGlobalPolicy(@PathVariable String key,
+                                           @Valid @RequestBody UpdatePolicy body, Principal principal) {
+        AgentCapabilityPolicy capability = CAPABILITY_POLICIES.stream()
+                .filter(policy -> policy.key().equals(key))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown global agent policy"));
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("key", key);
+        before.put("globalValue", policyValue(0, key));
+        before.put("effective", parseBoolean(policyValue(0, key), capability.defaultEnabled()));
+        gameJdbc.update("""
+                INSERT INTO agent_policies(agent_profile_id, scope, policy_key, policy_value)
+                VALUES (0, 'GLOBAL', ?, ?)
+                ON DUPLICATE KEY UPDATE policy_value=VALUES(policy_value), scope=VALUES(scope)
+                """, key, Boolean.toString(Boolean.TRUE.equals(body.enabled())));
+        Map<String, Object> after = globalPolicies().stream()
+                .filter(row -> key.equals(row.get("key")))
+                .findFirst()
+                .orElseThrow();
+        audit(principal, "AGENT_GLOBAL_POLICY_SET", "agent_policy_global:" + key, before, after,
+                valueOr(body.reason(), "Updated global agent policy through Agent CMS"));
+        return after;
+    }
+
+    @DeleteMapping("/policies/global/{key}")
+    Map<String, Object> resetGlobalPolicy(@PathVariable String key,
+                                          @RequestParam(defaultValue = "Reset global agent policy through Agent CMS") String reason,
+                                          Principal principal) {
+        if (CAPABILITY_POLICIES.stream().noneMatch(policy -> policy.key().equals(key))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown global agent policy");
+        }
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("key", key);
+        before.put("globalValue", policyValue(0, key));
+        gameJdbc.update("DELETE FROM agent_policies WHERE agent_profile_id=0 AND policy_key=?", key);
+        Map<String, Object> after = globalPolicies().stream()
+                .filter(row -> key.equals(row.get("key")))
+                .findFirst()
+                .orElseThrow();
+        audit(principal, "AGENT_GLOBAL_POLICY_RESET", "agent_policy_global:" + key, before, after, reason);
+        return after;
+    }
+
+    private List<Map<String, Object>> capabilityPolicyRows(int agentProfileId) {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (AgentCapabilityPolicy capability : CAPABILITY_POLICIES) {
             String globalValue = policyValue(0, capability.key());
-            String agentValue = policyValue(id, capability.key());
+            String agentValue = agentProfileId == 0 ? null : policyValue(agentProfileId, capability.key());
             boolean effective = parseBoolean(agentValue == null ? globalValue : agentValue, capability.defaultEnabled());
 
             Map<String, Object> row = new LinkedHashMap<>();
@@ -439,7 +494,7 @@ public class AgentController {
             row.put("globalValue", globalValue);
             row.put("agentValue", agentValue);
             row.put("effective", effective);
-            row.put("overridden", agentValue != null);
+            row.put("overridden", agentProfileId == 0 ? globalValue != null : agentValue != null);
             rows.add(row);
         }
         return rows;
@@ -497,10 +552,68 @@ public class AgentController {
     @GetMapping("/{id}/cooldowns")
     List<Map<String, Object>> cooldowns(@PathVariable int id) {
         agent(id);
+        return cooldownPolicyRows(id);
+    }
+
+    @GetMapping("/cooldowns/global")
+    List<Map<String, Object>> globalCooldowns() {
+        return cooldownPolicyRows(0);
+    }
+
+    @PutMapping("/cooldowns/global/{key}")
+    Map<String, Object> updateGlobalCooldown(@PathVariable String key,
+                                             @Valid @RequestBody UpdateCooldown body, Principal principal) {
+        AgentCooldownPolicy cooldown = COOLDOWN_POLICIES.stream()
+                .filter(policy -> policy.key().equals(key))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown global agent cooldown"));
+        long millis = body.millis() == null ? cooldown.defaultMillis() : body.millis();
+        if (millis < 0 || millis > 3_600_000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cooldown must be between 0 and 3,600,000 ms");
+        }
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("key", key);
+        before.put("globalValue", policyValue(0, key));
+        gameJdbc.update("""
+                INSERT INTO agent_policies(agent_profile_id, scope, policy_key, policy_value)
+                VALUES (0, 'GLOBAL', ?, ?)
+                ON DUPLICATE KEY UPDATE policy_value=VALUES(policy_value), scope=VALUES(scope)
+                """, key, Long.toString(millis));
+        Map<String, Object> after = globalCooldowns().stream()
+                .filter(row -> key.equals(row.get("key")))
+                .findFirst()
+                .orElseThrow();
+        audit(principal, "AGENT_GLOBAL_COOLDOWN_SET", "agent_cooldown_global:" + key, before, after,
+                valueOr(body.reason(), "Updated global agent cooldown through Agent CMS"));
+        return after;
+    }
+
+    @DeleteMapping("/cooldowns/global/{key}")
+    Map<String, Object> resetGlobalCooldown(@PathVariable String key,
+                                            @RequestParam(defaultValue = "Reset global agent cooldown through Agent CMS") String reason,
+                                            Principal principal) {
+        if (COOLDOWN_POLICIES.stream().noneMatch(policy -> policy.key().equals(key))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown global agent cooldown");
+        }
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("key", key);
+        before.put("globalValue", policyValue(0, key));
+        gameJdbc.update("DELETE FROM agent_policies WHERE agent_profile_id=0 AND policy_key=?", key);
+        Map<String, Object> after = globalCooldowns().stream()
+                .filter(row -> key.equals(row.get("key")))
+                .findFirst()
+                .orElseThrow();
+        audit(principal, "AGENT_GLOBAL_COOLDOWN_RESET", "agent_cooldown_global:" + key, before, after, reason);
+        return after;
+    }
+
+    private List<Map<String, Object>> cooldownPolicyRows(int agentProfileId) {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (AgentCooldownPolicy cooldown : COOLDOWN_POLICIES) {
             String globalValue = policyValue(0, cooldown.key());
-            String agentValue = policyValue(id, cooldown.key());
+            String agentValue = agentProfileId == 0 ? null : policyValue(agentProfileId, cooldown.key());
             long effective = parseNonNegativeLong(agentValue == null ? globalValue : agentValue, cooldown.defaultMillis());
 
             Map<String, Object> row = new LinkedHashMap<>();
@@ -511,7 +624,7 @@ public class AgentController {
             row.put("globalValue", globalValue);
             row.put("agentValue", agentValue);
             row.put("effectiveMillis", effective);
-            row.put("overridden", agentValue != null);
+            row.put("overridden", agentProfileId == 0 ? globalValue != null : agentValue != null);
             rows.add(row);
         }
         return rows;

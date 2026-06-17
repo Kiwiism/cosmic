@@ -88,6 +88,11 @@ allow navigation while still slowing portal/follow attempts, or allow chat while
 rate-limiting SAY intents. Per-agent cooldown rows override global rows; unset
 rows fall back to the server defaults.
 
+The Agent CMS runtime page can manage the global defaults directly. Global
+capability and cooldown rows are stored with `agent_profile_id = 0`; per-agent
+rows still win when present. Resetting a global row removes the database
+override and returns that policy to the built-in server default.
+
 The Agent CMS runtime page also exposes a lightweight summary endpoint for
 operational checks: open sessions, stale sessions, 24-hour action status counts,
 cooldown blocks, and the latest blocked or failed actions. This is intentionally
@@ -144,7 +149,8 @@ and items moved.
 Stores global or per-agent technical limits.
 
 `agent_profile_id = 0` represents a global policy. Per-agent policies can
-override global values later.
+override global values later. Agent CMS manages both scopes: the runtime page
+edits global defaults, and the agent profile page edits per-agent overrides.
 
 The dispatcher reads capability toggles from this table before execution:
 
