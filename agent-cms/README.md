@@ -12,7 +12,10 @@ It is intentionally separate from Server CMS. Server CMS manages server configur
 ## Databases
 
 - CMS auth/audit data: `cosmic_agent_cms`
-- Agent runtime data: the main `cosmic` database, because the Cosmic server reads agent tables directly.
+- Agent profiles, cards, runtime state, memory, routes, credentials, and audit data: `cosmic_agent_cms`
+- Game account/character/inventory data: the normal `cosmic` database only when Agent CMS creates or attaches a real game character.
+
+Agent CMS is the operator UI and configuration surface. The headless `agent-client` runtime is separate and connects to Cosmic like a normal v83 client; Agent CMS does not run autonomous gameplay inside the server.
 
 ## Start
 

@@ -1,0 +1,33 @@
+server:
+  port: ${AGENT_CLIENT_API_PORT:8094}
+spring:
+  datasource:
+    url: ${AGENT_CLIENT_DB_URL:${AGENT_CMS_DB_URL:jdbc:mysql://localhost:3306/cosmic_agent_cms?createDatabaseIfNotExist=true}}
+    username: ${AGENT_CLIENT_DB_USER:${AGENT_CMS_DB_USER:root}}
+    password: ${AGENT_CLIENT_DB_PASSWORD:${AGENT_CMS_DB_PASSWORD:}}
+cosmic:
+  game:
+    host: ${COSMIC_GAME_HOST:127.0.0.1}
+    login-port: ${COSMIC_LOGIN_PORT:8484}
+    channel-port-base: ${COSMIC_CHANNEL_PORT_BASE:7575}
+    world-port-stride: ${COSMIC_WORLD_PORT_STRIDE:100}
+    connect-timeout-millis: ${COSMIC_GAME_CONNECT_TIMEOUT_MILLIS:1500}
+  agent-runtime:
+    pulse-enabled: ${AGENT_CLIENT_PULSE_ENABLED:true}
+    pulse-millis: ${AGENT_CLIENT_PULSE_MILLIS:50}
+    decision-millis: ${AGENT_CLIENT_DECISION_MILLIS:250}
+    send-login-packets: ${AGENT_CLIENT_SEND_LOGIN_PACKETS:false}
+    send-movement-packets: ${AGENT_CLIENT_SEND_MOVEMENT_PACKETS:false}
+    send-npc-packets: ${AGENT_CLIENT_SEND_NPC_PACKETS:false}
+    send-loot-packets: ${AGENT_CLIENT_SEND_LOOT_PACKETS:false}
+    send-social-packets: ${AGENT_CLIENT_SEND_SOCIAL_PACKETS:false}
+    send-inventory-packets: ${AGENT_CLIENT_SEND_INVENTORY_PACKETS:false}
+    send-combat-packets: ${AGENT_CLIENT_SEND_COMBAT_PACKETS:false}
+    send-mob-movement-packets: ${AGENT_CLIENT_SEND_MOB_MOVEMENT_PACKETS:false}
+    mob-movement-millis: ${AGENT_CLIENT_MOB_MOVEMENT_MILLIS:250}
+    sustain:
+      enabled: ${AGENT_CLIENT_SUSTAIN_ENABLED:true}
+      hp-threshold: ${AGENT_CLIENT_SUSTAIN_HP_THRESHOLD:30}
+      hp-item-id: ${AGENT_CLIENT_SUSTAIN_HP_ITEM_ID:0}
+      hp-item-slot: ${AGENT_CLIENT_SUSTAIN_HP_ITEM_SLOT:0}
+      virtual-debt-allowed: ${AGENT_CLIENT_SUSTAIN_VIRTUAL_DEBT_ALLOWED:false}

@@ -36,6 +36,9 @@ $next = Join-Path $web "node_modules\next\dist\bin\next"
 if (-not (Test-Path -LiteralPath $next)) {
     throw "Agent CMS web dependencies are missing. Install them in agent-cms/web first, or install Server CMS web dependencies so this script can reuse them."
 }
+if (-not $env:AGENT_CLIENT_API_URL) {
+    $env:AGENT_CLIENT_API_URL = "http://127.0.0.1:8094"
+}
 
 & (Join-Path $root "mvnw.cmd") -q -f (Join-Path $api "pom.xml") package
 if ($LASTEXITCODE -ne 0) {
@@ -49,8 +52,7 @@ $javaArgs = @(
     "-Dcosmic.game-database.url=$env:COSMIC_DB_URL",
     "-Dcosmic.game-database.username=$env:COSMIC_DB_USER",
     "-Dcosmic.game-database.password=$env:COSMIC_DB_PASSWORD",
-    "-Dcosmic.bridge.url=$env:COSMIC_BRIDGE_URL",
-    "-Dcosmic.bridge.token=$env:COSMIC_BRIDGE_TOKEN",
+    "-Dcosmic.agent-client.url=$env:AGENT_CLIENT_API_URL",
     "-Dcosmic.allowed-origin=$env:AGENT_CMS_ALLOWED_ORIGIN",
     "-jar",
     (Join-Path $api "target\cosmic-agent-cms-api-0.1.0-SNAPSHOT.jar")
@@ -69,4 +71,5 @@ Set-Content -LiteralPath (Join-Path $runtime "web.pid") -Value $webProcess.Id
 Write-Host "Cosmic Agent CMS is starting:"
 Write-Host "  Web: http://localhost:3002"
 Write-Host "  API: http://localhost:8084"
+Write-Host "  Agent Client API: $env:AGENT_CLIENT_API_URL"
 Write-Host "  Logs: $runtime"

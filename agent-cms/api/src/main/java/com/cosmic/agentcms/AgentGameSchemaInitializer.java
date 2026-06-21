@@ -30,6 +30,7 @@ public class AgentGameSchemaInitializer {
             "agent_action_logs",
             "agent_scripts",
             "agent_goals",
+            "agent_runtime_credentials",
             "agent_runtime_sessions",
             "agent_policies",
             "agent_profiles"
@@ -158,9 +159,19 @@ public class AgentGameSchemaInitializer {
                 """);
         ensureColumn("agent_task_queue", "parameter_json", "TEXT DEFAULT NULL AFTER repeat_policy");
         ensureColumn("agent_task_schedules", "parameter_json", "TEXT DEFAULT NULL AFTER repeat_policy");
+        ensureColumn("agent_task_schedules", "queue_rule", "VARCHAR(32) NOT NULL DEFAULT 'BACK' AFTER parameter_json");
         ensureColumn("agent_task_defaults", "parameter_json", "TEXT DEFAULT NULL AFTER repeat_policy");
+        ensureColumn("agent_profiles", "autonomous_enabled", "TINYINT NOT NULL DEFAULT 0 AFTER enabled");
         ensureColumn("agent_profiles", "deployment_channel", "INT NOT NULL DEFAULT 1 AFTER llm_enabled");
         ensureColumn("agent_profiles", "allowed_channels", "VARCHAR(128) NOT NULL DEFAULT '1' AFTER deployment_channel");
+        ensureColumn("agent_profiles", "account_name", "VARCHAR(64) DEFAULT NULL AFTER character_id");
+        ensureColumn("agent_profiles", "character_name", "VARCHAR(64) DEFAULT NULL AFTER account_name");
+        ensureColumn("agent_profiles", "level", "INT NOT NULL DEFAULT 1 AFTER character_name");
+        ensureColumn("agent_profiles", "job", "INT NOT NULL DEFAULT 0 AFTER level");
+        ensureColumn("agent_profiles", "world", "INT NOT NULL DEFAULT 0 AFTER job");
+        ensureColumn("agent_profiles", "map", "INT NOT NULL DEFAULT 0 AFTER world");
+        ensureColumn("agent_profiles", "spawnpoint", "INT NOT NULL DEFAULT 0 AFTER map");
+        ensureColumn("agent_profiles", "loggedin", "INT NOT NULL DEFAULT 0 AFTER spawnpoint");
         migrateLegacyAgentTablesFromGameDatabase();
         seedBuiltInCards();
         seedExistingAgentLoadouts();
@@ -176,6 +187,7 @@ public class AgentGameSchemaInitializer {
                     owner_account_id INT DEFAULT NULL,
                     owner_character_id INT DEFAULT NULL,
                     enabled TINYINT NOT NULL DEFAULT 0,
+                    autonomous_enabled TINYINT NOT NULL DEFAULT 0,
                     display_name VARCHAR(32) DEFAULT NULL,
                     script_name VARCHAR(128) DEFAULT NULL,
                     llm_enabled TINYINT NOT NULL DEFAULT 0,
@@ -187,7 +199,23 @@ public class AgentGameSchemaInitializer {
                     UNIQUE KEY uk_agent_profiles_character (character_id),
                     KEY idx_agent_profiles_owner_account (owner_account_id),
                     KEY idx_agent_profiles_owner_character (owner_character_id),
-                    KEY idx_agent_profiles_enabled (enabled)
+                    KEY idx_agent_profiles_enabled (enabled),
+                    KEY idx_agent_profiles_autonomous (autonomous_enabled)
+                )
+                """);
+        agentJdbc.execute("""
+                CREATE TABLE IF NOT EXISTS agent_runtime_credentials (
+                    id BIGINT NOT NULL AUTO_INCREMENT,
+                    agent_profile_id INT NOT NULL,
+                    account_name VARCHAR(64) NOT NULL,
+                    password_secret TEXT NOT NULL,
+                    secret_format VARCHAR(32) NOT NULL DEFAULT 'PLAINTEXT_LOCAL_DEV',
+                    notes VARCHAR(500) DEFAULT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_agent_runtime_credentials_profile (agent_profile_id),
+                    KEY idx_agent_runtime_credentials_account (account_name)
                 )
                 """);
         agentJdbc.execute("""
@@ -241,6 +269,7 @@ public class AgentGameSchemaInitializer {
                     enabled TINYINT NOT NULL DEFAULT 1,
                     script_type VARCHAR(32) NOT NULL DEFAULT 'TEXT',
                     body MEDIUMTEXT NOT NULL,
+                    created_by VARCHAR(64) DEFAULT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     PRIMARY KEY (id),
@@ -354,6 +383,7 @@ public class AgentGameSchemaInitializer {
                     UNIQUE KEY uk_agent_policies_profile_key (agent_profile_id, policy_key)
                 )
                 """);
+        ensureColumn("agent_scripts", "created_by", "VARCHAR(64) DEFAULT NULL AFTER body");
     }
 
     private void ensureColumn(String table, String column, String definition) {
@@ -466,63 +496,92 @@ public class AgentGameSchemaInitializer {
     }
 
     private void seedBuiltInCards() {
+        agentJdbc.update("UPDATE agent_cards SET enabled=0 WHERE card_type NOT IN ('TASK', 'HOBBY', 'PERSONALITY') OR card_key LIKE 'behavior.%'");
         agentJdbc.update("""
-                INSERT IGNORE INTO agent_cards(card_key, card_type, name, description, priority, enabled, built_in, config_json) VALUES
-                    ('behavior.idle', 'BEHAVIOR', 'Idle', 'Wait calmly when no task, goal, or script is active.', 0, 1, 1, '{"intent":"IDLE"}'),
-                    ('behavior.grinder', 'BEHAVIOR', 'Grinder', 'Prefer killing visible monsters and picking up nearby drops.', 20, 1, 1, '{"intent":"GRIND"}'),
-                    ('behavior.looter', 'BEHAVIOR', 'Looter', 'Prefer nearby visible drop pickup before roaming for more drops.', 15, 1, 1, '{"intent":"LOOT"}'),
-                    ('behavior.companion', 'BEHAVIOR', 'Companion', 'Stay near visible players and behave like a party companion.', 15, 1, 1, '{"intent":"FOLLOW_CHARACTER"}'),
-                    ('behavior.town_idler', 'BEHAVIOR', 'Town idler', 'Hang around town-like social spaces and occasionally drift.', 10, 1, 1, '{"intent":"WAIT"}'),
-                    ('behavior.roamer', 'BEHAVIOR', 'Roamer', 'Move around when no stronger task is active.', 10, 1, 1, '{"intent":"ROAM"}'),
-                    ('behavior.movement_validator', 'BEHAVIOR', 'Movement validator', 'Cycle through local graph movement edges so operators can watch walk, step, jump, drop and climb animation in the v83 client.', 70, 1, 1, '{"intent":"ROAM","hint":"movement_validation","edgeTypes":["WALK","FOOTHOLD_LINK","JUMP","DROP","CLIMB"],"avoidPortals":true}'),
+                INSERT INTO agent_cards(card_key, card_type, name, description, priority, enabled, built_in, config_json) VALUES
                     ('personality.default', 'PERSONALITY', 'Default', 'Neutral server-safe agent personality.', 0, 1, 1, '{"tone":"neutral"}'),
                     ('personality.friendly', 'PERSONALITY', 'Friendly', 'Warm, helpful, and more likely to greet players.', 10, 1, 1, '{"tone":"friendly"}'),
                     ('personality.quiet', 'PERSONALITY', 'Quiet', 'Keeps chatter low and focuses on assigned tasks.', 10, 1, 1, '{"tone":"quiet"}'),
                     ('personality.playful', 'PERSONALITY', 'Playful', 'Light and social without bypassing safety rules.', 10, 1, 1, '{"tone":"playful"}'),
                     ('personality.focused', 'PERSONALITY', 'Focused', 'Task-first personality for grinding or quest routines.', 10, 1, 1, '{"tone":"focused"}'),
-                    ('task.idle', 'TASK', 'Idle until assigned', 'A no-op task card for agents that should do nothing unless goals are added.', 0, 1, 1, '{"behavior":"behavior.idle"}'),
-                    ('task.chill_town', 'TASK', 'Chill in town', 'Hang around social town spaces when no explicit goal is active.', 10, 1, 1, '{"behavior":"behavior.town_idler"}'),
-                    ('task.grind_to_level', 'TASK', 'Grind toward next level', 'Use safe grinding behavior as a placeholder for future level-target routines.', 20, 1, 1, '{"behavior":"behavior.grinder"}'),
-                    ('task.follow_player', 'TASK', 'Follow a player', 'Companion-style placeholder task for future party/follow routines.', 20, 1, 1, '{"behavior":"behavior.companion"}'),
-                    ('task.mapleisland_complete_all_quests', 'TASK', 'Complete Maple Island quests', 'Finish Maple Island quests in route order without taking one-way exits early, then end at Southperry.', 100, 1, 1, '{"behavior":"behavior.mapleisland_quester","runMode":"FINITE","repeatPolicy":"ONCE","region":"Maple Island","endpointMapId":60000,"endpointName":"Southperry","lockoutPolicy":"complete_map_quests_before_forward_only_transition","steps":["Amherst starter checks","Snail Hunting Ground training and ETC collection","Southperry Biggs and Shanks preparation","End idle at Southperry until assigned the next task"]}'),
-                    ('task.hang_southperry', 'TASK', 'Hang around Southperry', 'Reusable town task that keeps the agent around Southperry and available for social behavior.', 45, 1, 1, '{"behavior":"behavior.town_social_hangout","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":60000,"targetName":"Southperry"}'),
-                    ('task.hang_henesys', 'TASK', 'Hang around Henesys', 'Reusable town task that keeps the agent around Henesys for social roaming and light chatter.', 45, 1, 1, '{"behavior":"behavior.town_social_hangout","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":100000000,"targetName":"Henesys"}'),
-                    ('task.hang_lith_harbor', 'TASK', 'Hang around Lith Harbor', 'Reusable town task that keeps the agent around Lith Harbor near new arrivals.', 45, 1, 1, '{"behavior":"behavior.town_social_hangout","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104000000,"targetName":"Lith Harbor"}'),
-                    ('task.grind_right_around_lith_harbor', 'TASK', 'Grind Right Around Lith Harbor', 'Reusable light grinding task for the first field after Lith Harbor.', 60, 1, 1, '{"behavior":"behavior.map_grinder","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104000100,"targetName":"Right Around Lith Harbor","loot":true}'),
-                    ('task.grind_henesys_hunting_ground_i', 'TASK', 'Grind Henesys Hunting Ground I', 'Reusable grinding task for the Henesys Hunting Ground I route near Henesys.', 60, 1, 1, '{"behavior":"behavior.map_grinder","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104040000,"targetName":"Henesys Hunting Ground I","loot":true}'),
-                    ('task.hang_kerning_subway', 'TASK', 'Hang around Kerning Subway', 'Reusable hangout task around the Kerning City Subway entrance.', 40, 1, 1, '{"behavior":"behavior.town_social_hangout","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":103000100,"targetName":"Subway Ticketing Booth"}'),
-                    ('task.sit_on_relaxer', 'TASK', 'Sit on a Relaxer chair', 'Reusable calm task that prefers sitting on a Relaxer chair in a safe social map.', 35, 1, 1, '{"behavior":"behavior.chair_sitter","runMode":"REUSABLE","repeatPolicy":"LOOP","preferredItemId":3010000,"preferredItemName":"Relaxer"}'),
-                    ('task.validate_movement', 'TASK', 'Validate movement animation', 'Reusable operator task that exercises walk, step, jump, drop and ladder or rope graph edges on the current map for live client validation.', 95, 1, 1, '{"behavior":"behavior.movement_validator","runMode":"REUSABLE","repeatPolicy":"LOOP","validation":"walk_step_jump_drop_climb","avoidPortals":true}'),
-                    ('behavior.mapleisland_quester', 'BEHAVIOR', 'Maple Island quester', 'Quest-first behavior that avoids one-way transitions until local quest work is complete.', 60, 1, 1, '{"intent":"QUEST_ROUTE","avoidForwardOnlyLockout":true,"lootQuestItems":true}'),
-                    ('behavior.town_social_hangout', 'BEHAVIOR', 'Town social hangout', 'Stay in a town or safe hub, drift occasionally, and remain available for social actions.', 35, 1, 1, '{"intent":"WAIT","socialDrift":true,"safeMapsOnly":true}'),
-                    ('behavior.map_grinder', 'BEHAVIOR', 'Map grinder', 'Fight visible monsters on the assigned map and pick up nearby drops.', 45, 1, 1, '{"intent":"GRIND","stayOnAssignedMap":true,"lootNearby":true}'),
-                    ('behavior.chair_sitter', 'BEHAVIOR', 'Chair sitter', 'Prefer sitting on a Relaxer or other configured chair while idle in a safe location.', 25, 1, 1, '{"intent":"WAIT","preferChair":true,"chairItemId":3010000}'),
                     ('personality.chatty_neighbor', 'PERSONALITY', 'Chatty neighbor', 'More likely to greet nearby players and agents with short friendly lines.', 30, 1, 1, '{"tone":"chatty","chatFrequency":"medium","allowAgentChat":true,"allowPlayerChat":true}'),
                     ('personality.relaxed_sitter', 'PERSONALITY', 'Relaxed sitter', 'Calm personality for agents that sit around town and talk occasionally.', 25, 1, 1, '{"tone":"relaxed","chatFrequency":"low","likesChairs":true}'),
                     ('personality.helpful_newcomer', 'PERSONALITY', 'Helpful newcomer', 'Friendly beginner-style personality that can explain simple places and directions.', 25, 1, 1, '{"tone":"helpful","chatFrequency":"medium","topicBias":["directions","quests","training"]}'),
                     ('personality.expressive_mood', 'PERSONALITY', 'Expressive mood', 'Uses fitting facial expressions like F3 or F7 and small playful movements when idle or social.', 30, 1, 1, '{"tone":"expressive","faces":["F1","F3","F7"],"motions":["jump","duck","playful_swing"],"frequency":"medium"}'),
-                    ('policy.quest_lockout_safe', 'POLICY', 'Quest lockout safe', 'Constraint card for routes that must not leave one-way beginner areas before local quests are complete.', 50, 1, 1, '{"preventForwardOnlyExitUntilChecklistComplete":true}'),
-                    ('policy.no_hidden_gm_awareness', 'POLICY', 'Ignore hidden staff', 'Constraint card documenting that hidden GM characters are not valid social, follow, or awareness targets.', 50, 1, 1, '{"ignoreHiddenStaff":true}'),
-                    ('policy.safe_social_only', 'POLICY', 'Safe social only', 'Keeps passive social actions short, non-spammy, and server-safe.', 40, 1, 1, '{"chatCooldownSeconds":45,"noWhisperSpam":true,"noTradeSpam":true}'),
-                    ('utility.expressive_idle_mix', 'UTILITY', 'Expressive idle mix', 'Adds occasional F3, F7, jump, duck, and playful swing actions while waiting in safe maps.', 35, 1, 1, '{"expressions":["F3","F7"],"motions":["JUMP","DUCK","SWING"],"safeMapsOnly":true,"cooldownSeconds":20}'),
-                    ('utility.return_to_safe_town', 'UTILITY', 'Return to safe town', 'Utility preference for recovering to the nearest configured safe town when stuck or idle too long.', 30, 1, 1, '{"fallbackAction":"MOVE_TO_SAFE_TOWN","safeMapIds":[60000,104000000,100000000,103000000]}'),
-                    ('utility.prefer_nearest_valid_task', 'UTILITY', 'Prefer nearest valid task', 'Default task selection hint that favors useful tasks near the current map.', 25, 1, 1, '{"selectionHint":"NEAREST","avoidLongTravelWhenIdle":true}'),
-                    ('utility.relaxer_chair_idle', 'UTILITY', 'Relaxer chair idle', 'Utility preference to use a Relaxer chair when the active task allows waiting.', 20, 1, 1, '{"preferredChairItemId":3010000,"useWhenIdle":true}')
+                    ('hobby.questing', 'HOBBY', 'Questing', 'Prefers task cards that advance quests, NPC routes, and checklist completion.', 80, 1, 1, '{"preferenceWeights":{"quest":1.0},"fallbackIntent":"QUEST_ROUTE","avoidForwardOnlyLockout":true,"lootQuestItems":true}'),
+                    ('hobby.mob_grinding', 'HOBBY', 'Mob grinding', 'Prefers level, combat, and routine monster-hunting task cards.', 60, 1, 1, '{"preferenceWeights":{"combat":0.8,"loot":0.2},"fallbackIntent":"GRIND","lootNearby":true}'),
+                    ('hobby.rare_drop_hunting', 'HOBBY', 'Rare drop hunting', 'Prefers repeatable tasks that hunt specific mobs or items.', 55, 1, 1, '{"preferenceWeights":{"rareDrop":0.7,"combat":0.2,"loot":0.1},"fallbackIntent":"GRIND","lootNearby":true}'),
+                    ('hobby.town_social', 'HOBBY', 'Town social', 'Prefers town hangout, chatting, sitting, and light roaming task cards.', 45, 1, 1, '{"preferenceWeights":{"social":0.8,"exploration":0.2},"fallbackIntent":"WAIT","socialDrift":true,"safeMapsOnly":true}'),
+                    ('hobby.free_market_browser', 'HOBBY', 'Free Market browser', 'Prefers browsing shops and market-related task cards.', 40, 1, 1, '{"preferenceWeights":{"market":0.9,"social":0.1},"fallbackIntent":"WAIT","marketBias":true}'),
+                    ('hobby.chair_sitter', 'HOBBY', 'Chair sitter', 'Prefers safe idle tasks that sit on a Relaxer or other configured chair.', 35, 1, 1, '{"preferenceWeights":{"social":0.4,"idle":0.6},"fallbackIntent":"WAIT","preferChair":true,"chairItemId":3010000}'),
+                    ('hobby.roaming', 'HOBBY', 'Roaming', 'Prefers exploration and local movement tasks when no stronger plan exists.', 30, 1, 1, '{"preferenceWeights":{"exploration":0.8,"social":0.2},"fallbackIntent":"ROAM"}'),
+                    ('hobby.movement_validation', 'HOBBY', 'Movement validation', 'Operator-oriented hobby that favors movement validation task cards.', 70, 1, 1, '{"preferenceWeights":{"exploration":1.0},"fallbackIntent":"ROAM","hint":"movement_validation","edgeTypes":["WALK","FOOTHOLD_LINK","JUMP","DROP","CLIMB"],"avoidPortals":true}'),
+                    ('task.idle', 'TASK', 'Idle until assigned', 'A no-op task card for agents that should do nothing unless another task is assigned.', 0, 1, 1, '{"intent":"IDLE","runMode":"REUSABLE","repeatPolicy":"LOOP","categoryWeights":{"idle":1.0},"endGoal":{"type":"MANUAL_REPLACE"}}'),
+                    ('task.chill_town', 'TASK', 'Chill in town', 'Hang around social town spaces when no explicit goal is active.', 10, 1, 1, '{"intent":"WAIT","runMode":"REUSABLE","repeatPolicy":"LOOP","categoryWeights":{"social":0.7,"idle":0.3},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.grind_to_level', 'TASK', 'Grind toward next level', 'Fight safe monsters until a target level is reached.', 20, 1, 1, '{"intent":"GRIND","runMode":"FINITE","repeatPolicy":"ONCE","categoryWeights":{"combat":0.8,"loot":0.2},"endGoal":{"type":"REACH_LEVEL","parameter":"targetLevel"},"loot":true}'),
+                    ('task.follow_player', 'TASK', 'Follow a player', 'Companion task that stays near a configured player or party member.', 20, 1, 1, '{"intent":"FOLLOW_CHARACTER","runMode":"REUSABLE","repeatPolicy":"LOOP","categoryWeights":{"social":0.7,"exploration":0.3},"endGoal":{"type":"MANUAL_REPLACE"}}'),
+                    ('task.mapleisland_complete_all_quests', 'TASK', 'Complete Maple Island quests', 'Finish Maple Island quests in route order without taking one-way exits early, then end at Southperry.', 100, 1, 1, '{"intent":"QUEST_ROUTE","instructionSet":"mapleisland.full_questline.v1","runMode":"FINITE","repeatPolicy":"ONCE","region":"Maple Island","categoryWeights":{"quest":0.85,"combat":0.1,"loot":0.05},"endGoal":{"type":"MAPLE_ISLAND_QUESTS_COMPLETE_AND_REACH_MAP","mapId":60000,"mapName":"Southperry"},"lockoutPolicy":"complete_map_quests_before_forward_only_transition","steps":["Complete local NPC quests before leaving each Maple Island map","Collect required Snail and Mushroom ETC before advancing forward-only route steps","Submit Biggs and Shanks preparation quests before taking the Southperry exit","Move to Southperry and mark the task complete"]}'),
+                    ('task.hang_southperry', 'TASK', 'Hang around Southperry', 'Reusable town task that keeps the agent around Southperry and available for social actions.', 45, 1, 1, '{"intent":"WAIT","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":60000,"targetName":"Southperry","categoryWeights":{"social":0.75,"idle":0.25},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.hang_henesys', 'TASK', 'Hang around Henesys', 'Reusable town task that keeps the agent around Henesys for social roaming and light chatter.', 45, 1, 1, '{"intent":"WAIT","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":100000000,"targetName":"Henesys","categoryWeights":{"social":0.75,"exploration":0.25},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.hang_lith_harbor', 'TASK', 'Hang around Lith Harbor', 'Reusable town task that keeps the agent around Lith Harbor near new arrivals.', 45, 1, 1, '{"intent":"WAIT","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104000000,"targetName":"Lith Harbor","categoryWeights":{"social":0.7,"exploration":0.3},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.grind_right_around_lith_harbor', 'TASK', 'Grind Right Around Lith Harbor', 'Reusable light grinding task for the first field after Lith Harbor.', 60, 1, 1, '{"intent":"GRIND","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104000100,"targetName":"Right Around Lith Harbor","categoryWeights":{"combat":0.75,"loot":0.25},"loot":true,"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.grind_henesys_hunting_ground_i', 'TASK', 'Grind Henesys Hunting Ground I', 'Reusable grinding task for the Henesys Hunting Ground I route near Henesys.', 60, 1, 1, '{"intent":"GRIND","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":104040000,"targetName":"Henesys Hunting Ground I","categoryWeights":{"combat":0.75,"loot":0.25},"loot":true,"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.hang_kerning_subway', 'TASK', 'Hang around Kerning Subway', 'Reusable hangout task around the Kerning City Subway entrance.', 40, 1, 1, '{"intent":"WAIT","runMode":"REUSABLE","repeatPolicy":"LOOP","targetMapId":103000100,"targetName":"Subway Ticketing Booth","categoryWeights":{"social":0.7,"exploration":0.3},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.sit_on_relaxer', 'TASK', 'Sit on a Relaxer chair', 'Reusable calm task that prefers sitting on a Relaxer chair in a safe social map.', 35, 1, 1, '{"intent":"USE_CHAIR","runMode":"REUSABLE","repeatPolicy":"LOOP","preferredItemId":3010000,"preferredItemName":"Relaxer","categoryWeights":{"idle":0.8,"social":0.2},"endGoal":{"type":"DURATION_OR_REPLACE","durationMinutes":30}}'),
+                    ('task.validate_movement', 'TASK', 'Validate movement animation', 'Reusable operator task that exercises walk, step, jump, drop and ladder or rope graph edges on the current map for live client validation.', 95, 1, 1, '{"intent":"ROAM","runMode":"REUSABLE","repeatPolicy":"LOOP","validation":"walk_step_jump_drop_climb","avoidPortals":true,"categoryWeights":{"exploration":1.0},"endGoal":{"type":"MANUAL_REPLACE"}}')
+                ON DUPLICATE KEY UPDATE
+                    card_type = VALUES(card_type),
+                    name = VALUES(name),
+                    description = VALUES(description),
+                    priority = VALUES(priority),
+                    enabled = VALUES(enabled),
+                    built_in = VALUES(built_in),
+                    config_json = VALUES(config_json)
                 """);
     }
 
     private void seedExistingAgentLoadouts() {
         agentJdbc.update("""
+                DELETE FROM agent_card_loadouts
+                WHERE slot_key LIKE 'default_behavior_%'
+                   OR slot_key LIKE 'task_override_behavior_%'
+                   OR slot_key LIKE 'safety_%'
+                   OR slot_key LIKE 'passive_%'
+                   OR slot_key = 'default_active_task'
+                """);
+        agentJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
-                SELECT p.id, 'default_behavior_1', c.id, 1, 0, 'Default fallback equipped by Agent CMS startup initializer'
+                SELECT p.id, 'active_task', c.id, 1, 100, 'Default Maple Island task equipped by Agent CMS startup initializer'
                 FROM agent_profiles p
-                JOIN agent_cards c ON c.card_key = 'behavior.idle'
+                JOIN agent_cards c ON c.card_key = 'task.mapleisland_complete_all_quests'
+                """);
+        agentJdbc.update("""
+                INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
+                SELECT p.id, 'hobby_1', c.id, 1, 60, 'Default questing hobby equipped by Agent CMS startup initializer'
+                FROM agent_profiles p
+                JOIN agent_cards c ON c.card_key = 'hobby.questing'
                 """);
         agentJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
                 SELECT p.id, 'personality_1', c.id, 1, 0, 'Default personality equipped by Agent CMS startup initializer'
                 FROM agent_profiles p
                 JOIN agent_cards c ON c.card_key = 'personality.default'
+                """);
+        agentJdbc.update("""
+                INSERT INTO agent_task_queue(agent_profile_id, card_id, queue_order, status, run_mode, repeat_policy,
+                                             parameter_json, notes)
+                SELECT p.id, c.id, 100, 'PENDING', 'REUSABLE', 'LOOP',
+                       '{"targetMapId":60000,"targetName":"Southperry"}',
+                       'Default post-Maple-Island hangout queued by Agent CMS startup initializer'
+                FROM agent_profiles p
+                JOIN agent_cards c ON c.card_key = 'task.hang_southperry'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM agent_task_queue q
+                    WHERE q.agent_profile_id = p.id
+                      AND q.card_id = c.id
+                      AND q.status IN ('PENDING', 'ACTIVE')
+                )
                 """);
     }
 }

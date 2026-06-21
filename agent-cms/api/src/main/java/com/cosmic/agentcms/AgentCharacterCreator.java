@@ -1,6 +1,7 @@
 package com.cosmic.agentcms;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,7 @@ import java.util.regex.Pattern;
 public class AgentCharacterCreator {
     private static final Pattern ACCOUNT_NAME = Pattern.compile("[a-zA-Z0-9]{3,13}");
     private static final Pattern CHARACTER_NAME = Pattern.compile("[a-zA-Z0-9]{3,12}");
+    private static final String DEFAULT_AGENT_PASSWORD = "agent";
     private static final int[] DEFAULT_KEY = {18, 65, 2, 23, 3, 4, 5, 6, 16, 17, 19, 25, 26, 27, 31, 34, 35, 37, 38, 40, 43, 44, 45, 46, 50, 56, 59, 60, 61, 62, 63, 64, 57, 48, 29, 7, 24, 33, 41, 39};
     private static final int[] DEFAULT_TYPE = {4, 6, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 4, 4, 5, 6, 6, 6, 6, 6, 6, 5, 4, 5, 4, 4, 4, 4, 4};
     private static final int[] DEFAULT_ACTION = {0, 106, 10, 1, 12, 13, 18, 24, 8, 5, 4, 19, 14, 15, 2, 17, 11, 3, 20, 16, 9, 50, 51, 6, 7, 53, 100, 101, 102, 103, 104, 105, 54, 22, 52, 21, 25, 26, 23, 27};
@@ -35,21 +37,25 @@ public class AgentCharacterCreator {
     private final JdbcTemplate cmsJdbc;
     private final PasswordEncoder passwordEncoder;
     private final CharacterCosmeticCatalog cosmetics;
+    private final boolean storeCreatedAccountPasswords;
 
     public AgentCharacterCreator(@Qualifier("gameDataSource") DataSource gameDataSource,
                                  @Qualifier("gameJdbc") JdbcTemplate gameJdbc,
                                  JdbcTemplate cmsJdbc,
                                  PasswordEncoder passwordEncoder,
-                                 CharacterCosmeticCatalog cosmetics) {
+                                 CharacterCosmeticCatalog cosmetics,
+                                 @Value("${cosmic.agent-runtime.store-created-account-passwords:true}") boolean storeCreatedAccountPasswords) {
         this.gameDataSource = gameDataSource;
         this.gameJdbc = gameJdbc;
         this.cmsJdbc = cmsJdbc;
         this.passwordEncoder = passwordEncoder;
         this.cosmetics = cosmetics;
+        this.storeCreatedAccountPasswords = storeCreatedAccountPasswords;
     }
 
     public CreatedAgentCharacter create(CreateAgentCharacter body) {
-        validateRequest(body);
+        String accountPassword = effectivePassword(body);
+        validateRequest(body, accountPassword);
         int gender = body.gender() == null ? 0 : body.gender();
         CharacterCosmeticCatalog.CharacterCosmetics defaults = cosmetics.defaultsFor(gender);
         int face = body.face() == null ? defaults.face() : body.face();
@@ -72,7 +78,7 @@ public class AgentCharacterCreator {
         try (Connection connection = gameDataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                AccountResolution account = resolveOrCreateAccount(connection, accountName, body.password(), gender, Boolean.TRUE.equals(body.useExistingAccount()));
+                AccountResolution account = resolveOrCreateAccount(connection, accountName, accountPassword, gender, Boolean.TRUE.equals(body.useExistingAccount()));
                 prepareAccountForCharacterCreation(connection, account.id(), gender, account.created());
                 int characterId = insertCharacter(connection, account.id(), characterName, body.world(), gender, skin, hair, face, selectedCosmetics);
                 insertDefaultKeymap(connection, characterId);
@@ -81,6 +87,7 @@ public class AgentCharacterCreator {
                 connection.commit();
                 if (Boolean.TRUE.equals(body.createAgentProfile())) {
                     agentProfileId = insertAgentProfile(characterId, characterName, account.id(), body);
+                    storeRuntimeCredentialIfEligible(agentProfileId, account, accountPassword);
                 }
                 return new CreatedAgentCharacter(account.id(), account.name(), account.created(), characterId, characterName,
                         body.world(), gender, skin, hair, face, agentProfileId);
@@ -100,7 +107,14 @@ public class AgentCharacterCreator {
         }
     }
 
-    private void validateRequest(CreateAgentCharacter body) {
+    private String effectivePassword(CreateAgentCharacter body) {
+        if (body.password() != null && !body.password().isBlank()) {
+            return body.password().trim();
+        }
+        return Boolean.TRUE.equals(body.useExistingAccount()) ? "" : DEFAULT_AGENT_PASSWORD;
+    }
+
+    private void validateRequest(CreateAgentCharacter body, String accountPassword) {
         if (body.accountName() == null || !ACCOUNT_NAME.matcher(body.accountName().trim()).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account name must be 3-13 letters or numbers");
         }
@@ -114,8 +128,12 @@ public class AgentCharacterCreator {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gender must be 0 or 1");
         }
         if (!Boolean.TRUE.equals(body.useExistingAccount())
-                && (body.password() == null || body.password().length() < 5)) {
+                && accountPassword.length() < 5) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "New account password must be at least 5 characters");
+        }
+        if (Boolean.TRUE.equals(body.useExistingAccount())
+                && !accountPassword.isBlank() && accountPassword.length() < 5) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Runtime credential password must be at least 5 characters");
         }
     }
 
@@ -224,30 +242,18 @@ public class AgentCharacterCreator {
 
     private WorldSlotDefaults worldSlotDefaults(int world) {
         try {
-            return Optional.ofNullable(gameJdbc.queryForMap("""
-                            SELECT
-                              COALESCE(MAX(CASE WHEN c.setting_key='server.world.defaultEquipSlots' THEN o.value_text END),
-                                       MAX(CASE WHEN c.setting_key='server.world.defaultEquipSlots' THEN c.default_value END)) equip,
-                              COALESCE(MAX(CASE WHEN c.setting_key='server.world.defaultUseSlots' THEN o.value_text END),
-                                       MAX(CASE WHEN c.setting_key='server.world.defaultUseSlots' THEN c.default_value END)) useSlots,
-                              COALESCE(MAX(CASE WHEN c.setting_key='server.world.defaultSetupSlots' THEN o.value_text END),
-                                       MAX(CASE WHEN c.setting_key='server.world.defaultSetupSlots' THEN c.default_value END)) setup,
-                              COALESCE(MAX(CASE WHEN c.setting_key='server.world.defaultEtcSlots' THEN o.value_text END),
-                                       MAX(CASE WHEN c.setting_key='server.world.defaultEtcSlots' THEN c.default_value END)) etc
-                            FROM cosmic_server_cms.setting_catalog c
-                            LEFT JOIN cosmic_server_cms.setting_overrides o ON o.setting_key = c.setting_key
-                              AND o.scope_type = c.scope_type
-                              AND o.scope_id = ?
-                              AND o.active = 1
-                            WHERE c.scope_type = 'WORLD'
-                              AND c.setting_key IN ('server.world.defaultEquipSlots', 'server.world.defaultUseSlots',
-                                                    'server.world.defaultSetupSlots', 'server.world.defaultEtcSlots')
-                            """, world))
+            return Optional.ofNullable(cmsJdbc.queryForMap("""
+                            SELECT equip_slots, use_slots, setup_slots, etc_slots
+                            FROM agent_world_defaults
+                            WHERE world_id IN (?, -1)
+                            ORDER BY CASE WHEN world_id = ? THEN 0 ELSE 1 END
+                            LIMIT 1
+                            """, world, world))
                     .map(row -> new WorldSlotDefaults(
-                            intOrDefault(row.get("equip"), 24),
-                            intOrDefault(row.get("useSlots"), 24),
-                            intOrDefault(row.get("setup"), 24),
-                            intOrDefault(row.get("etc"), 24)))
+                            intOrDefault(row.get("equip_slots"), 24),
+                            intOrDefault(row.get("use_slots"), 24),
+                            intOrDefault(row.get("setup_slots"), 24),
+                            intOrDefault(row.get("etc_slots"), 24)))
                     .orElse(new WorldSlotDefaults(24, 24, 24, 24));
         } catch (Exception ignored) {
             return new WorldSlotDefaults(24, 24, 24, 24);
@@ -357,8 +363,8 @@ public class AgentCharacterCreator {
                                        CreateAgentCharacter body) {
         cmsJdbc.update("""
                 INSERT INTO agent_profiles(character_id, ownership_type, owner_account_id, owner_character_id,
-                                           enabled, display_name, script_name, llm_enabled)
-                VALUES (?, 'SERVER', ?, NULL, ?, ?, ?, ?)
+                                           enabled, autonomous_enabled, display_name, script_name, llm_enabled)
+                VALUES (?, 'SERVER', ?, NULL, ?, 0, ?, ?, ?)
                 """, characterId, accountId, Boolean.TRUE.equals(body.enabled()),
                 valueOr(body.displayName(), characterName), body.scriptName(), Boolean.TRUE.equals(body.llmEnabled()));
         Integer profileId = cmsJdbc.queryForObject("SELECT id FROM agent_profiles WHERE character_id=?",
@@ -366,8 +372,31 @@ public class AgentCharacterCreator {
         if (profileId == null) {
             throw new IllegalStateException("Agent profile insert did not return an id");
         }
+        cmsJdbc.update("""
+                UPDATE agent_profiles
+                SET account_name=?, character_name=?, level=1, job=0, world=?, map=10000, spawnpoint=0, loggedin=0
+                WHERE id=?
+                """, body.accountName().trim(), characterName, body.world(), profileId);
         seedDefaultLoadout(profileId);
         return profileId;
+    }
+
+    private void storeRuntimeCredentialIfEligible(Integer agentProfileId, AccountResolution account,
+                                                  String password) {
+        if (agentProfileId == null || !storeCreatedAccountPasswords
+                || password == null || password.isBlank()) {
+            return;
+        }
+        cmsJdbc.update("""
+                INSERT INTO agent_runtime_credentials(agent_profile_id, account_name, password_secret, secret_format, notes)
+                VALUES (?, ?, ?, 'PLAINTEXT_LOCAL_DEV', 'Stored for headless agent login through Agent CMS character creator')
+                ON DUPLICATE KEY UPDATE
+                    account_name=VALUES(account_name),
+                    password_secret=VALUES(password_secret),
+                    secret_format=VALUES(secret_format),
+                    notes=VALUES(notes),
+                    updated_at=CURRENT_TIMESTAMP
+                """, agentProfileId, account.name(), password);
     }
 
     private void seedDefaultLoadout(int agentProfileId) {
@@ -379,9 +408,9 @@ public class AgentCharacterCreator {
                 """, agentProfileId);
         cmsJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
-                SELECT ?, 'task_override_behavior_1', c.id, 1, 60, 'Default Maple Island task behavior equipped when agent profile was created'
+                SELECT ?, 'hobby_1', c.id, 1, 60, 'Default questing hobby equipped when agent profile was created'
                 FROM agent_cards c
-                WHERE c.card_key = 'behavior.mapleisland_quester'
+                WHERE c.card_key = 'hobby.questing'
                 """, agentProfileId);
         cmsJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
@@ -389,6 +418,22 @@ public class AgentCharacterCreator {
                 FROM agent_cards c
                 WHERE c.card_key = 'personality.default'
                 """, agentProfileId);
+        cmsJdbc.update("""
+                INSERT INTO agent_task_queue(agent_profile_id, card_id, queue_order, status, run_mode, repeat_policy,
+                                             parameter_json, notes)
+                SELECT ?, c.id, 100, 'PENDING', 'REUSABLE', 'LOOP',
+                       '{"targetMapId":60000,"targetName":"Southperry"}',
+                       'Default post-Maple-Island hangout queued when agent profile was created'
+                FROM agent_cards c
+                WHERE c.card_key = 'task.hang_southperry'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM agent_task_queue q
+                    WHERE q.agent_profile_id = ?
+                      AND q.card_id = c.id
+                      AND q.status IN ('PENDING', 'ACTIVE')
+                  )
+                """, agentProfileId, agentProfileId);
     }
 
     private String valueOr(String value, String fallback) {

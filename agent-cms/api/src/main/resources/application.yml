@@ -12,8 +12,15 @@ cosmic:
     url: ${COSMIC_DB_URL:jdbc:mysql://localhost:3306/cosmic?createDatabaseIfNotExist=false}
     username: ${COSMIC_DB_USER:${AGENT_CMS_DB_USER:root}}
     password: ${COSMIC_DB_PASSWORD:${AGENT_CMS_DB_PASSWORD:}}
-  bridge:
-    url: ${COSMIC_BRIDGE_URL:http://127.0.0.1:8787}
-    token: ${COSMIC_BRIDGE_TOKEN:}
+  game:
+    host: ${COSMIC_GAME_HOST:127.0.0.1}
+    login-port: ${COSMIC_LOGIN_PORT:8484}
+    channel-port-base: ${COSMIC_CHANNEL_PORT_BASE:7575}
+    world-port-stride: ${COSMIC_WORLD_PORT_STRIDE:100}
+    connect-timeout-millis: ${COSMIC_GAME_CONNECT_TIMEOUT_MILLIS:1500}
+  agent-runtime:
+    store-created-account-passwords: ${AGENT_CMS_STORE_CREATED_ACCOUNT_PASSWORDS:true}
+  agent-client:
+    url: ${AGENT_CLIENT_API_URL:http://127.0.0.1:8094}
   wz-path: ${COSMIC_WZ_PATH:../../wz}
   allowed-origin: ${AGENT_CMS_ALLOWED_ORIGIN:http://localhost:3002}

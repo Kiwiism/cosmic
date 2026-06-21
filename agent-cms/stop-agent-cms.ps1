@@ -8,4 +8,10 @@ foreach ($name in @("api.pid", "web.pid")) {
         Remove-Item -LiteralPath $file -Force
     }
 }
+foreach ($port in @(8084, 3002)) {
+    $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    foreach ($processId in ($connections | Select-Object -ExpandProperty OwningProcess -Unique)) {
+        Stop-Process -Id $processId -Force
+    }
+}
 Write-Host "Cosmic Agent CMS stopped."

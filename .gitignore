@@ -31,6 +31,10 @@
 /agent-cms/.env.local
 /agent-cms/.runtime/
 /agent-cms/**/*.log
+/agent-client/**/target/
+/agent-client/.runtime/
+/agent-client/*.csv
+/agent-client/*.log
 
 # build files
 /build/

@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -24,10 +27,12 @@ public class AgentController {
     private final JdbcTemplate cmsJdbc;
     private final JdbcTemplate gameJdbc;
     private final ObjectMapper mapper;
-    private final BridgeClient bridge;
+    private final RestClient agentClientRest;
     private final CharacterCosmeticCatalog cosmeticCatalog;
     private final AgentCharacterCreator characterCreator;
+    private final AgentMapCatalogImporter mapCatalogImporter;
     private final String gameSchema;
+    private final String agentClientBaseUrl;
     private static final List<AgentCapabilityPolicy> CAPABILITY_POLICIES = List.of(
             new AgentCapabilityPolicy("intent.self.enabled", "Self timing", "Allows no-op IDLE and WAIT runtime intents.", true),
             new AgentCapabilityPolicy("intent.chat.enabled", "Chat", "Allows SAY intents to broadcast normal map chat.", false),
@@ -66,22 +71,41 @@ public class AgentController {
     );
 
     public AgentController(JdbcTemplate cmsJdbc, @Qualifier("gameJdbc") JdbcTemplate gameJdbc, ObjectMapper mapper,
-                           BridgeClient bridge, CharacterCosmeticCatalog cosmeticCatalog,
+                           RestClient.Builder restClientBuilder, CharacterCosmeticCatalog cosmeticCatalog,
                            AgentCharacterCreator characterCreator,
-                           @Value("${cosmic.game-database.url}") String gameDatabaseUrl) {
+                           AgentMapCatalogImporter mapCatalogImporter,
+                           @Value("${cosmic.game-database.url}") String gameDatabaseUrl,
+                           @Value("${cosmic.agent-client.url:http://127.0.0.1:8094}") String agentClientUrl) {
         this.cmsJdbc = cmsJdbc;
         this.gameJdbc = gameJdbc;
         this.mapper = mapper;
-        this.bridge = bridge;
+        this.agentClientBaseUrl = trimTrailingSlash(agentClientUrl);
+        this.agentClientRest = restClientBuilder.baseUrl(this.agentClientBaseUrl).build();
         this.cosmeticCatalog = cosmeticCatalog;
         this.characterCreator = characterCreator;
+        this.mapCatalogImporter = mapCatalogImporter;
         this.gameSchema = schemaFromJdbcUrl(gameDatabaseUrl, "cosmic");
+    }
+
+    @GetMapping("/map-catalog/status")
+    Map<String, Object> mapCatalogStatus() {
+        return mapCatalogImporter.status();
+    }
+
+    @PostMapping("/map-catalog/import")
+    Map<String, Object> importMapCatalog() {
+        return mapCatalogImporter.importPortals();
     }
 
     @GetMapping
     List<Map<String, Object>> agents(@RequestParam(defaultValue = "") String q) {
         return agentQuery("""
                 SELECT p.*, c.name character_name, c.level, c.job, c.world, c.map, c.hair, c.face, c.skincolor, c.gender, a.name account_name,
+                       EXISTS(
+                           SELECT 1
+                           FROM agent_runtime_credentials rc
+                           WHERE rc.agent_profile_id = p.id
+                       ) has_runtime_credential,
                        (
                            SELECT GROUP_CONCAT(ii.itemid ORDER BY ii.position SEPARATOR ',')
                            FROM inventoryitems ii
@@ -108,6 +132,11 @@ public class AgentController {
     Map<String, Object> agent(@PathVariable int id) {
         return oneGame("""
                 SELECT p.*, c.name character_name, c.level, c.job, c.world, c.map, c.spawnpoint, c.hair, c.face, c.skincolor, c.gender,
+                       EXISTS(
+                           SELECT 1
+                           FROM agent_runtime_credentials rc
+                           WHERE rc.agent_profile_id = p.id
+                       ) has_runtime_credential,
                        (
                            SELECT GROUP_CONCAT(ii.itemid ORDER BY ii.position SEPARATOR ',')
                            FROM inventoryitems ii
@@ -137,14 +166,15 @@ public class AgentController {
 
         cmsJdbc.update("""
                 INSERT INTO agent_profiles(character_id, ownership_type, owner_account_id, owner_character_id,
-                                           enabled, display_name, script_name, llm_enabled, deployment_channel, allowed_channels)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                                           enabled, autonomous_enabled, display_name, script_name, llm_enabled, deployment_channel, allowed_channels)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 body.characterId(),
                 valueOr(body.ownershipType(), "SERVER"),
                 body.ownerAccountId(),
                 body.ownerCharacterId(),
                 Boolean.TRUE.equals(body.enabled()),
+                Boolean.TRUE.equals(body.autonomousEnabled()),
                 valueOr(body.displayName(), String.valueOf(character.get("character_name"))),
                 body.scriptName(),
                 Boolean.TRUE.equals(body.llmEnabled()),
@@ -153,6 +183,11 @@ public class AgentController {
 
         Map<String, Object> created = oneGame("""
                 SELECT p.*, c.name character_name, c.level, c.job, c.world, c.map, c.hair, c.face, c.skincolor, c.gender, a.name account_name,
+                       EXISTS(
+                           SELECT 1
+                           FROM agent_runtime_credentials rc
+                           WHERE rc.agent_profile_id = p.id
+                       ) has_runtime_credential,
                        (
                            SELECT GROUP_CONCAT(ii.itemid ORDER BY ii.position SEPARATOR ',')
                            FROM inventoryitems ii
@@ -165,6 +200,7 @@ public class AgentController {
                 JOIN accounts a ON a.id = c.accountid
                 WHERE p.character_id=?
                 """, body.characterId());
+        syncCachedRuntimeProfile(((Number) created.get("id")).intValue(), created);
         seedDefaultLoadout(((Number) created.get("id")).intValue());
         audit(principal, "AGENT_PROFILE_CREATE", "agent:" + created.get("id"), null, created, "Created through Agent CMS");
         return created;
@@ -175,10 +211,11 @@ public class AgentController {
         Map<String, Object> before = agent(id);
         cmsJdbc.update("""
                 UPDATE agent_profiles
-                SET enabled=?, display_name=?, script_name=?, llm_enabled=?, deployment_channel=?, allowed_channels=?
+                SET enabled=?, autonomous_enabled=?, display_name=?, script_name=?, llm_enabled=?, deployment_channel=?, allowed_channels=?
                 WHERE id=?
                 """,
                 body.enabled(),
+                Boolean.TRUE.equals(body.autonomousEnabled()),
                 valueOr(body.displayName(), String.valueOf(before.get("character_name"))),
                 body.scriptName(),
                 Boolean.TRUE.equals(body.llmEnabled()),
@@ -190,6 +227,38 @@ public class AgentController {
         return after;
     }
 
+    @PutMapping("/{id}/runtime-credential")
+    Map<String, Object> saveRuntimeCredential(@PathVariable int id,
+                                              @Valid @RequestBody SaveRuntimeCredential body,
+                                              Principal principal) {
+        Map<String, Object> profile = agent(id);
+        String password = body.password() == null ? "" : body.password().trim();
+        if (password.length() < 5) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Runtime credential password must be at least 5 characters");
+        }
+        String accountName = valueOr(body.accountName(), String.valueOf(profile.get("account_name")));
+        cmsJdbc.update("""
+                INSERT INTO agent_runtime_credentials(agent_profile_id, account_name, password_secret, secret_format, notes)
+                VALUES (?, ?, ?, 'PLAINTEXT_LOCAL_DEV', ?)
+                ON DUPLICATE KEY UPDATE
+                    account_name=VALUES(account_name),
+                    password_secret=VALUES(password_secret),
+                    secret_format=VALUES(secret_format),
+                    notes=VALUES(notes),
+                    updated_at=CURRENT_TIMESTAMP
+                """, id, accountName, password, valueOr(body.notes(), "Stored for headless agent login through Agent CMS"));
+        Map<String, Object> after = agent(id);
+        Map<String, Object> auditAfter = new LinkedHashMap<>();
+        auditAfter.put("agent_profile_id", id);
+        auditAfter.put("account_name", accountName);
+        auditAfter.put("has_runtime_credential", true);
+        audit(principal, "AGENT_RUNTIME_CREDENTIAL_SAVE", "agent:" + id,
+                Map.of("has_runtime_credential", profile.get("has_runtime_credential")),
+                auditAfter,
+                valueOr(body.reason(), "Saved runtime credential through Agent CMS"));
+        return after;
+    }
+
     @GetMapping("/cards")
     List<Map<String, Object>> cards(@RequestParam(defaultValue = "") String q,
                                     @RequestParam(defaultValue = "") String type) {
@@ -198,9 +267,10 @@ public class AgentController {
                 SELECT *
                 FROM agent_cards
                 WHERE enabled = 1
+                  AND card_type IN ('TASK', 'HOBBY', 'PERSONALITY')
                   AND card_type LIKE ?
                   AND (name LIKE ? OR card_key LIKE ? OR description LIKE ? OR CAST(id AS CHAR) LIKE ?)
-                ORDER BY FIELD(card_type, 'TASK', 'BEHAVIOR', 'PERSONALITY', 'POLICY', 'UTILITY'),
+                ORDER BY FIELD(card_type, 'TASK', 'HOBBY', 'PERSONALITY'),
                          priority DESC, name
                 LIMIT 300
                 """, normalizedType, like(q), like(q), like(q), like(q));
@@ -362,14 +432,15 @@ public class AgentController {
         cmsJdbc.update("""
                 INSERT INTO agent_task_schedules(agent_profile_id, card_id, enabled, schedule_name, days_of_week,
                                                  start_time, end_time, starts_at, ends_at, timezone, priority,
-                                                 run_mode, repeat_policy, parameter_json, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                 run_mode, repeat_policy, parameter_json, queue_rule, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id, body.cardId(), !Boolean.FALSE.equals(body.enabled()),
                 valueOr(body.scheduleName(), "Scheduled task"), valueOr(body.daysOfWeek(), "ALL"),
                 body.startTime(), body.endTime(), body.startsAt(), body.endsAt(),
                 valueOr(body.timezone(), "Asia/Singapore"), body.priority() == null ? 0 : body.priority(),
-                valueOr(body.runMode(), "REUSABLE"), valueOr(body.repeatPolicy(), "LOOP"), body.parameterJson(), body.notes());
+                valueOr(body.runMode(), "REUSABLE"), valueOr(body.repeatPolicy(), "LOOP"), body.parameterJson(),
+                sanitizeQueueRule(body.queueRule()), body.notes());
         Map<String, Object> after = taskStack(id);
         audit(principal, "AGENT_TASK_SCHEDULE_ADD", "agent:" + id, before, after,
                 valueOr(body.reason(), "Added scheduled task card"));
@@ -385,7 +456,8 @@ public class AgentController {
         cmsJdbc.update("""
                 UPDATE agent_task_schedules
                 SET card_id=?, enabled=?, schedule_name=?, days_of_week=?, start_time=?, end_time=?,
-                    starts_at=?, ends_at=?, timezone=?, priority=?, run_mode=?, repeat_policy=?, parameter_json=?, notes=?
+                    starts_at=?, ends_at=?, timezone=?, priority=?, run_mode=?, repeat_policy=?, parameter_json=?,
+                    queue_rule=?, notes=?
                 WHERE id=? AND agent_profile_id=?
                 """,
                 body.cardId(), !Boolean.FALSE.equals(body.enabled()),
@@ -393,7 +465,7 @@ public class AgentController {
                 body.startTime(), body.endTime(), body.startsAt(), body.endsAt(),
                 valueOr(body.timezone(), "Asia/Singapore"), body.priority() == null ? 0 : body.priority(),
                 valueOr(body.runMode(), "REUSABLE"), valueOr(body.repeatPolicy(), "LOOP"),
-                body.parameterJson(), body.notes(), scheduleId, id);
+                body.parameterJson(), sanitizeQueueRule(body.queueRule()), body.notes(), scheduleId, id);
         Map<String, Object> after = taskStack(id);
         audit(principal, "AGENT_TASK_SCHEDULE_UPDATE", "agent:" + id + ":schedule:" + scheduleId, before, after,
                 valueOr(body.reason(), "Updated scheduled task card"));
@@ -493,8 +565,8 @@ public class AgentController {
     @GetMapping("/{id}/spawn-plan")
     Map<String, Object> spawnPlan(@PathVariable int id) {
         Map<String, Object> row = agent(id);
-        boolean enabled = Boolean.TRUE.equals(row.get("enabled"));
-        boolean accountOnline = Number.class.cast(row.get("loggedin")).intValue() != 0;
+        boolean enabled = truthy(row.get("enabled"));
+        boolean accountOnline = numeric(row.get("loggedin"), 0) != 0;
         Map<String, Object> plan = new LinkedHashMap<>();
         plan.put("ready", enabled && !accountOnline);
         plan.put("world", row.get("world"));
@@ -503,7 +575,7 @@ public class AgentController {
         plan.put("allowedChannels", sanitizeAllowedChannels((String) row.get("allowed_channels"), deploymentChannel));
         plan.put("mapId", row.get("map"));
         plan.put("spawnPoint", row.get("spawnpoint"));
-        plan.put("message", !enabled ? "Agent profile is disabled" : accountOnline ? "Account is currently logged in" : "Ready for future dormant control shell");
+        plan.put("message", !enabled ? "Agent profile is disabled" : accountOnline ? "Account is currently logged in" : "Ready for external Agent Client");
         return plan;
     }
 
@@ -1018,27 +1090,87 @@ public class AgentController {
     @PostMapping("/{id}/runtime/{action:prepare|enter|tick|release}")
     Map<String, Object> runtimeAction(@PathVariable int id, @PathVariable String action, Principal principal) {
         Map<String, Object> before = agent(id);
-        Map<String, Object> result = bridge.agentAction(id, action);
+        syncCachedRuntimeProfile(id);
+        Map<String, Object> result = agentClientPost("/api/client/sessions/" + id + "/" + action, Map.of());
         audit(principal, "AGENT_RUNTIME_" + action.toUpperCase(), "agent:" + id, before, result,
                 "Manual agent runtime action through Agent CMS");
         return result;
     }
 
+    @GetMapping("/{id}/runtime/snapshot")
+    Map<String, Object> runtimeSnapshot(@PathVariable int id) {
+        syncCachedRuntimeProfile(id);
+        return agentClientGet("/api/client/sessions/" + id);
+    }
+
+    @PostMapping("/{id}/runtime/manual/key/{state:start|stop}")
+    Map<String, Object> runtimeManualKey(@PathVariable int id, @PathVariable String state,
+                                         @Valid @RequestBody ManualKey body, Principal principal) {
+        Map<String, Object> before = agent(id);
+        syncCachedRuntimeProfile(id);
+        Map<String, Object> result = agentClientPost("/api/client/sessions/" + id + "/manual/key/" + state,
+                Map.of("key", body.key()));
+        audit(principal, "AGENT_RUNTIME_MANUAL_KEY_" + state.toUpperCase(), "agent:" + id, before, result,
+                "Manual key " + state + " through Agent CMS");
+        return result;
+    }
+
+    @PostMapping("/{id}/runtime/manual/action")
+    Map<String, Object> runtimeManualAction(@PathVariable int id, @Valid @RequestBody ManualAction body,
+                                            Principal principal) {
+        Map<String, Object> before = agent(id);
+        syncCachedRuntimeProfile(id);
+        Map<String, Object> result = agentClientPost("/api/client/sessions/" + id + "/manual/action",
+                Map.of("action", body.action(), "payload", body.payload() == null ? Map.of() : body.payload()));
+        audit(principal, "AGENT_RUNTIME_MANUAL_ACTION", "agent:" + id, before, result,
+                "Manual action through Agent CMS");
+        return result;
+    }
+
+    @PostMapping("/{id}/runtime/reset-location")
+    Map<String, Object> resetRuntimeLocation(@PathVariable int id,
+                                             @Valid @RequestBody ResetLocation body,
+                                             Principal principal) {
+        Map<String, Object> before = agent(id);
+        int mapId = body.mapId() == null ? 10000 : body.mapId();
+        int spawnPoint = body.spawnPoint() == null ? 0 : body.spawnPoint();
+        int characterId = numeric(before.get("character_id"), 0);
+        if (characterId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent profile has no linked character");
+        }
+
+        gameJdbc.update("""
+                UPDATE characters
+                SET map=?, spawnpoint=?
+                WHERE id=?
+                """, mapId, spawnPoint, characterId);
+        cmsJdbc.update("""
+                UPDATE agent_profiles
+                SET map=?, spawnpoint=?, loggedin=0
+                WHERE id=?
+                """, mapId, spawnPoint, id);
+        Map<String, Object> after = agent(id);
+        audit(principal, "AGENT_RUNTIME_RESET_LOCATION", "agent:" + id, before, after,
+                valueOr(body.reason(), "Reset agent runtime location through Agent CMS"));
+        return after;
+    }
+
     @PostMapping("/{id}/runtime/smoke-test")
     Map<String, Object> runtimeSmokeTest(@PathVariable int id, Principal principal) {
         Map<String, Object> before = agent(id);
+        syncCachedRuntimeProfile(id);
         List<String> actions = List.of("prepare", "enter", "tick");
         List<Map<String, Object>> steps = new ArrayList<>();
         boolean completed = true;
         String stoppedAt = null;
         for (String action : actions) {
-            Map<String, Object> result = bridge.agentAction(id, action);
+            Map<String, Object> result = agentClientPost("/api/client/sessions/" + id + "/" + action, Map.of());
             Map<String, Object> step = new LinkedHashMap<>();
             step.put("action", action);
             step.put("result", result);
-            step.put("ok", bridgeStepSucceeded(action, result));
+            step.put("ok", runtimeStepSucceeded(action, result));
             steps.add(step);
-            if (!bridgeStepSucceeded(action, result)) {
+            if (!runtimeStepSucceeded(action, result)) {
                 completed = false;
                 stoppedAt = action;
                 break;
@@ -1282,6 +1414,99 @@ public class AgentController {
         return cmsJdbc.queryForList(qualifyGameTables(sql), args);
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> agentClientGet(String path) {
+        try {
+            Map<String, Object> result = agentClientRest.get()
+                    .uri(path)
+                    .retrieve()
+                    .body(Map.class);
+            return result == null ? Map.of("status", "EMPTY") : result;
+        } catch (Exception exception) {
+            throw agentClientException(path, exception);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> agentClientPost(String path, Map<String, Object> body) {
+        try {
+            Map<String, Object> result = agentClientRest.post()
+                    .uri(path)
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+            return result == null ? Map.of("status", "EMPTY") : result;
+        } catch (Exception exception) {
+            throw agentClientException(path, exception);
+        }
+    }
+
+    private ResponseStatusException agentClientException(String path, Exception exception) {
+        if (exception instanceof ResourceAccessException) {
+            return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Agent Client is not reachable at " + agentClientBaseUrl
+                            + ". Start agent-client first, then retry " + path + ".",
+                    exception);
+        }
+        if (exception instanceof RestClientResponseException responseException) {
+            String body = responseException.getResponseBodyAsString();
+            String detail = body == null || body.isBlank()
+                    ? responseException.getStatusText()
+                    : abbreviate(body.replaceAll("\\s+", " "), 500);
+            return new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Agent Client returned HTTP " + responseException.getStatusCode().value()
+                            + " for " + path + ": " + detail,
+                    exception);
+        }
+        return new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                "Agent Client proxy failed for " + path + ": " + exception.getClass().getSimpleName(),
+                exception);
+    }
+
+    private static String trimTrailingSlash(String value) {
+        String trimmed = value == null || value.isBlank() ? "http://127.0.0.1:8094" : value.trim();
+        while (trimmed.endsWith("/") && trimmed.length() > 1) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    private static String abbreviate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private void syncCachedRuntimeProfile(int agentProfileId) {
+        Map<String, Object> row = oneGame("""
+                SELECT p.id, c.name character_name, c.level, c.job, c.world, c.map, c.spawnpoint,
+                       a.name account_name, a.loggedin
+                FROM agent_profiles p
+                JOIN characters c ON c.id = p.character_id
+                JOIN accounts a ON a.id = c.accountid
+                WHERE p.id=?
+                """, agentProfileId);
+        syncCachedRuntimeProfile(agentProfileId, row);
+    }
+
+    private void syncCachedRuntimeProfile(int agentProfileId, Map<String, Object> row) {
+        cmsJdbc.update("""
+                UPDATE agent_profiles
+                SET account_name=?, character_name=?, level=?, job=?, world=?, map=?, spawnpoint=?, loggedin=?
+                WHERE id=?
+                """,
+                row.get("account_name"),
+                row.get("character_name"),
+                numeric(row.get("level"), 1),
+                numeric(row.get("job"), 0),
+                numeric(row.get("world"), 0),
+                numeric(row.get("map"), 0),
+                numeric(row.get("spawnpoint"), 0),
+                numeric(row.get("loggedin"), 0),
+                agentProfileId);
+    }
+
     private String qualifyGameTables(String sql) {
         String qualified = sql;
         for (String table : List.of("characters", "accounts", "inventoryitems")) {
@@ -1335,6 +1560,16 @@ public class AgentController {
         }
     }
 
+    private boolean truthy(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        return parseBoolean(value == null ? null : String.valueOf(value), false);
+    }
+
     private int sanitizeDeploymentChannel(Integer value) {
         if (value == null) {
             return 1;
@@ -1366,12 +1601,9 @@ public class AgentController {
     private void validateCardSlot(String slotKey, String cardType) {
         String normalizedSlot = slotKey == null ? "" : slotKey.trim().toLowerCase(Locale.ROOT);
         String normalizedType = cardType == null ? "" : cardType.trim().toUpperCase(Locale.ROOT);
-        boolean valid = normalizedSlot.startsWith("active_task") && "TASK".equals(normalizedType)
-                || normalizedSlot.startsWith("default_behavior") && "BEHAVIOR".equals(normalizedType)
-                || normalizedSlot.startsWith("task_override_behavior") && "BEHAVIOR".equals(normalizedType)
-                || normalizedSlot.startsWith("personality") && "PERSONALITY".equals(normalizedType)
-                || normalizedSlot.startsWith("safety") && List.of("POLICY", "UTILITY", "BEHAVIOR").contains(normalizedType)
-                || normalizedSlot.startsWith("passive") && List.of("UTILITY", "BEHAVIOR", "PERSONALITY").contains(normalizedType);
+        boolean valid = "active_task".equals(normalizedSlot) && "TASK".equals(normalizedType)
+                || normalizedSlot.matches("hobby_[1-5]") && "HOBBY".equals(normalizedType)
+                || normalizedSlot.matches("personality_[1-3]") && "PERSONALITY".equals(normalizedType);
         if (!valid) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Card type " + normalizedType + " cannot be equipped into slot " + slotKey);
@@ -1413,6 +1645,14 @@ public class AgentController {
         return normalized.substring(0, suffix);
     }
 
+    private String sanitizeQueueRule(String value) {
+        String normalized = value == null ? "BACK" : value.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "FRONT", "BACK", "REPLACE_ACTIVE" -> normalized;
+            default -> "BACK";
+        };
+    }
+
     private void validateTaskCard(long cardId) {
         Map<String, Object> card = oneGame("""
                 SELECT id, card_type
@@ -1433,9 +1673,9 @@ public class AgentController {
                 """, agentProfileId);
         cmsJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
-                SELECT ?, 'task_override_behavior_1', c.id, 1, 60, 'Default Maple Island task behavior equipped when agent profile was created'
+                SELECT ?, 'hobby_1', c.id, 1, 60, 'Default questing hobby equipped when agent profile was created'
                 FROM agent_cards c
-                WHERE c.card_key = 'behavior.mapleisland_quester'
+                WHERE c.card_key = 'hobby.questing'
                 """, agentProfileId);
         cmsJdbc.update("""
                 INSERT IGNORE INTO agent_card_loadouts(agent_profile_id, slot_key, card_id, enabled, priority, notes)
@@ -1443,6 +1683,22 @@ public class AgentController {
                 FROM agent_cards c
                 WHERE c.card_key = 'personality.default'
                 """, agentProfileId);
+        cmsJdbc.update("""
+                INSERT INTO agent_task_queue(agent_profile_id, card_id, queue_order, status, run_mode, repeat_policy,
+                                             parameter_json, notes)
+                SELECT ?, c.id, 100, 'PENDING', 'REUSABLE', 'LOOP',
+                       '{"reason":"Default post-Maple-Island fallback queued for new agents"}',
+                       'Default Southperry hangout queued when agent profile was created'
+                FROM agent_cards c
+                WHERE c.card_key = 'task.hang_southperry'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM agent_task_queue q
+                    WHERE q.agent_profile_id = ?
+                      AND q.card_id = c.id
+                      AND q.status IN ('PENDING', 'ACTIVE')
+                  )
+                """, agentProfileId, agentProfileId);
     }
 
     private String policyValue(int agentProfileId, String key) {
@@ -1595,7 +1851,7 @@ public class AgentController {
         return List.of("UNKNOWN").contains(intent);
     }
 
-    private boolean bridgeStepSucceeded(String action, Map<String, Object> result) {
+    private boolean runtimeStepSucceeded(String action, Map<String, Object> result) {
         if (result == null || result.containsKey("error") || "OFFLINE".equals(String.valueOf(result.get("status")))) {
             return false;
         }
@@ -1672,10 +1928,12 @@ public class AgentController {
 
     record CreateAgent(@NotNull Integer characterId, String ownershipType, Integer ownerAccountId,
                        Integer ownerCharacterId, Boolean enabled, String displayName, String scriptName,
-                       Boolean llmEnabled, Integer deploymentChannel, String allowedChannels) {}
+                       Boolean llmEnabled, Boolean autonomousEnabled, Integer deploymentChannel, String allowedChannels) {}
 
     record UpdateAgent(Boolean enabled, String displayName, String scriptName, Boolean llmEnabled,
-                       Integer deploymentChannel, String allowedChannels, String reason) {}
+                       Boolean autonomousEnabled, Integer deploymentChannel, String allowedChannels, String reason) {}
+
+    record SaveRuntimeCredential(String accountName, String password, String notes, String reason) {}
 
     record SaveCardLoadout(@NotNull Long cardId, Boolean enabled, Integer priority, Boolean overrideBehavior,
                            String notes, String reason) {}
@@ -1686,7 +1944,8 @@ public class AgentController {
 
     record SaveTaskSchedule(@NotNull Long cardId, Boolean enabled, String scheduleName, String daysOfWeek,
                              String startTime, String endTime, String startsAt, String endsAt, String timezone,
-                             Integer priority, String runMode, String repeatPolicy, String parameterJson, String notes, String reason) {}
+                             Integer priority, String runMode, String repeatPolicy, String parameterJson,
+                             String queueRule, String notes, String reason) {}
 
     record SaveTaskDefault(@NotNull Long cardId, Boolean enabled, Integer priority, String selectionRule,
                            String runMode, String repeatPolicy, String parameterJson, String notes, String reason) {}
@@ -1719,4 +1978,10 @@ public class AgentController {
     ) {}
 
     record UpdateGoalStatus(String status, String reason) {}
+
+    record ManualKey(@NotNull String key) {}
+
+    record ManualAction(@NotNull String action, Map<String, Object> payload) {}
+
+    record ResetLocation(Integer mapId, Integer spawnPoint, String reason) {}
 }

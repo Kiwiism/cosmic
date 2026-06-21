@@ -30,6 +30,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 
 /**
  * @author Matze
@@ -69,7 +70,8 @@ public class RankingLoginTask implements Runnable {
                     int rankMove = 0;
                     rank++;
 
-                    final long lastlogin = rs.getTimestamp("lastlogin").getTime();
+                    Timestamp lastLoginTimestamp = rs.getTimestamp("lastlogin");
+                    final long lastlogin = lastLoginTimestamp == null ? 0L : lastLoginTimestamp.getTime();
                     if (lastlogin < lastUpdate || rs.getInt("loggedin") > 0) {
                         rankMove = rs.getInt((job != -1 ? "jobRankMove" : "rankMove"));
                     }
